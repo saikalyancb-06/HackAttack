@@ -1,0 +1,95 @@
+name: research_the_top_3_open_source_vector_databases_co
+app: office
+intent: Research the top 3 open-source vector databases, compare their features and
+  licenses, and write a short report as a Word document
+risk: write
+steps:
+- step_id: s1
+  description: Search for recent articles listing top open-source vector databases
+  tool: research.search
+  args:
+    query: top open-source vector databases 2026
+    k: 8
+  produces:
+    type: dataset
+    key: search1
+  route: browser
+  risk: read
+- step_id: s2
+  description: Search for features and license information of open-source vector databases
+  tool: research.search
+  args:
+    query: open source vector database features license
+    k: 8
+  produces:
+    type: dataset
+    key: search2
+  route: browser
+  risk: read
+- step_id: s3
+  description: Fetch the content of the most promising URLs from the first search
+  tool: research.fetch
+  args:
+    url: '{{item.url}}'
+  foreach: '{{s1.results}}'
+  produces:
+    type: dataset
+    key: pages
+  route: browser
+  risk: read
+- step_id: s4
+  description: Extract and rank the top 3 open-source vector databases with their
+    features and licenses
+  tool: llm.generate
+  args:
+    instruction: Extract the top 3 open-source vector databases mentioned across the
+      fetched pages (s3) and the search snippets (s1, s2). For each database, provide
+      its Name, a brief list of primary features, its open-source license, and the
+      official website URL. Rank the databases by overall popularity or community
+      adoption. Return the result as a JSON array of objects.
+    inputs:
+      search1: '{{s1}}'
+      search2: '{{s2}}'
+      pages: '{{s3}}'
+    format: json
+    schema:
+      rows:
+      - Name: string
+        Features: string
+        License: string
+        Website: string
+  produces:
+    type: dataset
+    key: db_comparison
+  route: think
+  risk: read
+- step_id: s5
+  description: Generate a short report summarizing the comparison
+  tool: llm.generate
+  args:
+    instruction: Using the extracted rows from s4, write a concise report (approx
+      300 words) comparing the three vector databases, covering their key features
+      and licenses. Format the report as plain text suitable for a Word document.
+    inputs:
+      rows: '{{s4.rows}}'
+    format: text
+    schema:
+      report: string
+  produces:
+    type: document
+    key: report_text
+  route: think
+  risk: read
+- step_id: s6
+  description: Write the report to a Word document
+  tool: office.word_write_doc
+  args:
+    path: VectorDB_Report.docx
+    text: '{{s5.report}}'
+  produces:
+    type: document
+    key: VectorDB_Report.docx
+  route: com
+  risk: write
+approved: true
+source_run: r_c8a624
