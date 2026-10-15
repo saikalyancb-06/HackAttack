@@ -12,6 +12,17 @@
 
 ---
 
+## 📸 Screenshots
+
+| | |
+|:---:|:---:|
+| **Start: describe a goal or pick an example**<br/><img src="docs/screenshots/01-home.png" width="420"/> | **A run: safety check → live plan → verified steps**<br/><img src="docs/screenshots/02-run-result.png" width="420"/> |
+| **Report: "Here's what you asked for" + how it went**<br/><img src="docs/screenshots/03-report.png" width="420"/> | **Knowledge graph: every result remembered and reused**<br/><img src="docs/screenshots/04-knowledge.png" width="420"/> |
+| **Audit timeline: every action, append-only, PII masked**<br/><img src="docs/screenshots/05-audit.png" width="420"/> | **Feasibility: "can't pay for you", does the doable part**<br/><img src="docs/screenshots/06-safety.png" width="420"/> |
+| **Dark theme**<br/><img src="docs/screenshots/07-dark.png" width="420"/> | |
+
+---
+
 ## 🧭 Why atom8
 
 One real task, like *"find three internships, compare them, save the best to Excel and draft an email for each"*,
@@ -201,15 +212,6 @@ flowchart LR
 | **Audit** | `ledger/db.py` | append-only record of every plan, tool call, approval and LLM call (masked) |
 
 ---
-
-## 📸 Screenshots
-
-| | |
-|:---:|:---:|
-| **Start: describe a goal or pick an example**<br/><img src="docs/screenshots/01-home.png" width="420"/> | **A run: safety check → live plan → verified steps**<br/><img src="docs/screenshots/02-run-result.png" width="420"/> |
-| **Report: "Here's what you asked for" + how it went**<br/><img src="docs/screenshots/03-report.png" width="420"/> | **Knowledge graph: every result remembered and reused**<br/><img src="docs/screenshots/04-knowledge.png" width="420"/> |
-| **Audit timeline: every action, append-only, PII masked**<br/><img src="docs/screenshots/05-audit.png" width="420"/> | **Feasibility: "can't pay for you", does the doable part**<br/><img src="docs/screenshots/06-safety.png" width="420"/> |
-| **Dark theme**<br/><img src="docs/screenshots/07-dark.png" width="420"/> | |
 
 ---
 
