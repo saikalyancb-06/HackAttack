@@ -1,0 +1,15 @@
+# One draft per email (CONTRACTS §6 + §11 foreach). Drafts only: sending is a separate, approval-gated step.
+name: outlook.create_drafts
+app: outlook
+intent: "Create email drafts for review, one per recipient"
+risk: write
+params: {emails: list}
+steps:
+  - tool: office.outlook_create_draft
+    foreach: emails
+    args: {to: "{item.to}", subject: "{item.subject}", body: "{item.body}"}
+verify:
+  tool: office.outlook_create_draft
+  expect: "one draft per email"
+produces: {type: drafts, key: "drafts"}
+approved: true

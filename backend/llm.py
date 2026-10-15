@@ -195,6 +195,26 @@ def complete(messages: list[dict], json_schema: dict | None = None, images: list
                     time.sleep(1.5 * (attempt + 1))
                     continue
                 break
+    # Every Groq key/model failed: other providers from the team chain, if configured (text only, same masked prompt)
+    if not images and model is None:
+        from openai import OpenAI
+        for name, base, key_env, fb_model in config.FALLBACK_PROVIDERS:
+            key = config.env(key_env)
+            if not key:
+                continue
+            try:
+                kwargs = {"model": fb_model, "messages": msgs, "temperature": temperature, "max_tokens": max_tokens}
+                if json_schema is not None:
+                    kwargs["response_format"] = {"type": "json_object"}
+                resp = OpenAI(api_key=key, base_url=base, timeout=60, max_retries=0).chat.completions.create(**kwargs)
+                text = resp.choices[0].message.content or ""
+                if project_id:
+                    from backend.ledger import db
+                    db.audit(project_id, run_id, "llm_call", {"model": f"{name}:{fb_model}", "json": json_schema is not None, "fallback": True})
+                out = _parse_json(text) if json_schema is not None else text
+                return pii.unmask(out, mapping) if unmask_output else out
+            except Exception as e:
+                last_err = e
     raise RuntimeError(f"LLM call failed: {last_err}")
 
 

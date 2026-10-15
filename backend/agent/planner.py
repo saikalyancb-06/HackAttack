@@ -38,6 +38,11 @@ _RULES = """Rules:
   args {"to": "{{item.to}}", "subject": "{{item.subject}}", "body": "{{item.body}}"}). Never send unless the user explicitly asked to send;
   sending uses office.outlook_send_draft and will be approved by a human.
 - Files: relative paths go to the project folder; use absolute paths only when the user gave them. Deleting uses files.delete (Recycle Bin).
+- Doing something ON a website (shopping: find + add to cart / wishlist, bookings, reservations, filling or submitting
+  web forms, anything on the user's account, anything that needs the user to log in): use ONE browser.agent step with the
+  whole web task and every detail the user gave (start_url = the site's home page, e.g. https://www.flipkart.com, if
+  known). It runs live in a new tab the user watches; the user logs in themselves when asked. Only GETTING information
+  (facts, comparisons, lists to save in a file) uses research.search / research.fetch instead.
 - Microsoft Office (PowerPoint, Word, Excel): ALWAYS use the office.* tools to create, edit or read documents
   (office.ppt_edit_slides, office.word_edit / office.word_write_doc, office.excel_set_cells / office.excel_upsert_rows).
   They open the app visibly, edit exactly, save, and are verified. Put ALL slides / edits for one document in ONE step.

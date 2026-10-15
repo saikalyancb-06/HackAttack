@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>PenMart - Online Stationery Store</title>
+<style>body{font-family:Segoe UI,Arial;margin:0}header{display:flex;gap:16px;align-items:center;padding:12px 20px;background:#2874f0;color:#fff}
+header input{flex:1;padding:8px;border-radius:4px;border:0}header button,header a{color:#fff;background:none;border:1px solid #fff;padding:6px 12px;border-radius:4px;cursor:pointer;text-decoration:none}
+.grid{display:grid;grid-template-columns:repeat(3,220px);gap:16px;padding:20px}.card{border:1px solid #ddd;padding:12px;border-radius:8px}
+.card a{font-weight:600;color:#212121}</style></head>
+<body>
+<header><b>PenMart</b><input id="search" placeholder="Search for products" aria-label="Search for products">
+<button id="searchBtn">Search</button><a id="loginLink" href="login.html">Login</a><a id="cartLink" href="cart.html">Cart (<span id="cartCount">0</span>)</a></header>
+<div class="grid" id="results">
+  <div class="card"><a href="product.html?id=blue-pen" id="p_blue">Blue Ballpoint Pen</a><div>₹20 · ★4.5 · [Best Seller]</div></div>
+  <div class="card"><a href="product.html?id=red-pen" id="p_red">Red Gel Pen</a><div>₹35 · ★4.1</div></div>
+  <div class="card"><a href="product.html?id=notebook" id="p_nb">A5 Notebook</a><div>₹60 · ★4.3</div></div>
+</div>
+<script src="shop.js"></script>
+</body></html>

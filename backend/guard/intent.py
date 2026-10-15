@@ -162,6 +162,47 @@ def _summary(verdict: str, intent: dict, feas: dict) -> str:
     return " ".join(parts)
 
 
+_CLARIFY_SCHEMA = {"type": "object", "properties": {
+    "needs_details": {"type": "boolean"},
+    "questions": {"type": "array", "items": {"type": "object", "properties": {
+        "id": {"type": "string"}, "question": {"type": "string"},
+        "options": {"type": "array", "items": {"type": "string"}}}}}}}
+
+
+def clarifying_questions(goal: str, project_id: str | None = None) -> list[dict]:
+    """Questions to ask BEFORE acting when a real-world task is missing details only the user can decide
+    (e.g. booking: date, time, airline; buying: size, budget). [] when the task is clear enough or the LLM is off."""
+    if not llm.available() or not goal.strip():
+        return []
+    if re.search(r"(?i)\b(your (choice|call|pick)|you (decide|choose|pick)|up to you|anything (is )?fine|any (one|of them)|"
+                 r"whatever you (think|like|want)|surprise me|no preference|doesn'?t matter|don'?t care)\b", goal):
+        return []  # the user delegated the remaining choices
+    try:
+        out = llm.complete([
+            {"role": "system", "content":
+                "You decide whether an autonomous agent must ask the user for details BEFORE it starts a task.\n"
+                "Ask ONLY when the task commits to something in the real world (booking, buying, ordering, reserving, "
+                "applying, sending, scheduling, signing up) AND a choice that changes the outcome is missing and cannot be "
+                "sensibly defaulted: e.g. travel date / time window / passengers / airline or class; product size, colour, "
+                "budget or brand; recipient. Never ask about anything the goal already states, never ask for passwords, "
+                "OTPs, card numbers or other secrets, never ask for research, summaries, file or office tasks.\n"
+                "If the user already wrote 'your choice', 'anything', 'you decide' or similar, ask nothing.\n"
+                "At most 4 short questions. For each give 2-5 concrete example options. ids: q1, q2, ...\n"
+                'Return {"needs_details": bool, "questions": [{"id","question","options"}]}.'},
+            {"role": "user", "content": f"TASK: {goal}"}],
+            json_schema=_CLARIFY_SCHEMA, project_id=project_id, max_tokens=900)
+    except Exception:
+        return []
+    if not isinstance(out, dict) or not out.get("needs_details"):
+        return []
+    qs = []
+    for i, q in enumerate(out.get("questions") or [], 1):
+        if isinstance(q, dict) and str(q.get("question", "")).strip():
+            qs.append({"id": f"q{i}", "question": str(q["question"]).strip()[:200],
+                       "options": [str(o)[:60] for o in (q.get("options") or []) if str(o).strip()][:5]})
+    return qs[:4]
+
+
 def check_plan(plan: list[dict]) -> dict:
     """Per-step feasibility: every tool exists and required args are present (references allowed)."""
     from backend.tools.catalog import all_tools

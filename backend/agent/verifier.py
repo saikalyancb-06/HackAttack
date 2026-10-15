@@ -118,6 +118,12 @@ def verify(project_id: str, step: dict, args: dict, output: Any) -> dict:
                     "details": {}}
         if tool == "windows.explore":
             return {"ok": bool(output.get("ok")), "checks": [f"{len(output.get('actions', []))} UI actions"], "details": {}}
+        if tool == "browser.agent":
+            ok = output.get("outcome") == "SUCCESS"
+            return {"ok": ok, "checks": [f"browser task {output.get('outcome', '?').lower()} after {output.get('steps', 0)} steps on "
+                                         f"{output.get('finalTitle') or output.get('finalUrl') or 'the site'}",
+                                         output.get("reason") or "", f"{output.get('redactedCount', 0)} items redacted from the agent"],
+                    "details": {}}
     except Exception as e:
         return {"ok": False, "checks": [f"verification error: {type(e).__name__}: {str(e)[:200]}"], "details": {}}
     return {"ok": True, "checks": ["no independent check for this tool; output recorded"], "details": {}}

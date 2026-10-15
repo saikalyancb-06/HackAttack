@@ -86,7 +86,22 @@ def redact_image(png_bytes: bytes, text_boxes: list[dict] | None = None) -> tupl
         _blur(img, (r["x"], r["y"], r["w"], r["h"]))
     out = io.BytesIO()
     img.save(out, format="PNG")
-    return out.getvalue(), regions
+    png = out.getvalue()
+    # Second pass: the team's on-device ONNX visual PII detector (modules/guard/visual_pii.py) catches PII that is
+    # not machine-readable text (handwriting, ID-card layouts). Its regions are blurred too.
+    if not any(r["label"] == "UNVERIFIED" for r in regions):
+        try:
+            from modules.guard.visual_pii import redact_image as onnx_redact
+            from backend import config
+            import os
+            os.environ.setdefault("VISUAL_PII_MODEL", str(config.ROOT / "modules" / "pre-built-vision" / "visual_pii_detector.onnx"))
+            if os.path.exists(os.environ["VISUAL_PII_MODEL"]):
+                png2, extra = onnx_redact(png)
+                if extra and not any(e.get("label") == "UNVERIFIED" or (e.get("w", 0) >= img.width and e.get("h", 0) >= img.height) for e in extra):
+                    png, regions = png2, regions + [{**e, "label": f"VISUAL_{e.get('label', 'PII')}"} for e in extra]
+        except Exception:
+            pass
+    return png, regions
 
 
 if __name__ == "__main__":

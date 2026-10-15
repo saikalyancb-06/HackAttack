@@ -9,6 +9,13 @@
       "port": 8000
     },
     {
+      "name": "agent-server",
+      "runtimeExecutable": "C:/Users/cbsai/AppData/Local/Programs/Python/Python313/python.exe",
+      "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "server.app.main:app", "--port", "8080"],
+      "cwd": "E:/hackattackamc",
+      "port": 8080
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],

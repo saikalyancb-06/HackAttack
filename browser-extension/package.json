@@ -1,0 +1,17 @@
+﻿{
+  "name": "ps26171-browser-extension",
+  "version": "1.0.0",
+  "description": "On-device Visual Perception for Light-weight Browser Agents (ISRO PS 26171)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test_extension.mjs",
+    "test:e2e": "node test_browser_e2e.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.19.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}

@@ -111,6 +111,70 @@ def _heuristic(task: str, obs: dict, history: list[dict]) -> dict:
     return {"action": "none", "done": True}
 
 
+_NEEDS_SCREEN = re.compile(r"(?i)\b(play|game|chess|tic[\s-]?tac|sudoku|solitaire|minesweeper|draw|sketch|paint (a|an|the)|"
+                           r"wait (for|until) (me|my|the user)|my (move|turn)|watch the screen|on (the )?screen)\b")
+_VISION_SCHEMA = {"type": "object", "properties": {
+    "thought": {"type": "string"}, "done": {"type": "boolean"},
+    "action": {"enum": ["click", "type", "keys", "wait_for_change", "none"]},
+    "x": {"type": "number"}, "y": {"type": "number"}, "text": {"type": "string"}, "keys": {"type": "string"}}}
+_VISION_RULES = """You control a Windows app by looking at screenshots of it. Magenta ruler lines mark a 0-1000 coordinate grid
+(x left->right, y top->bottom). Each turn return ONE action as JSON:
+- {"action":"click","x":<0-1000>,"y":<0-1000>}: click the CENTER of the target.
+- {"action":"type","text":"..."} / {"action":"keys","keys":"enter"}
+- {"action":"wait_for_change"}: wait until something on screen changes (e.g. the other player / the user makes a move).
+- {"done":true,"action":"none","thought":"<outcome>"} when the task is finished (e.g. game over: say who won).
+Think about the state first in "thought". Never click the same thing twice in a row unless it had no effect.
+Never close windows, delete, buy, send or submit forms."""
+
+
+def interactive(project_id: str, run_id: str, task: str, window: Any, max_turns: int = 40) -> dict:
+    """Vision loop (ported from the team's loop._interactive): look -> one decision -> act -> wait for the screen to
+    settle. Waiting for the user costs no LLM calls (pixel diff only)."""
+    import time
+    from backend.tools import desktop as dk
+    from backend.tools import windows as w
+    title = window.get("token") if isinstance(window, dict) else window
+    if window:
+        w.focus(window)
+        time.sleep(0.4)
+    rect = dk.content_rect(title)
+    history, actions, calls = [], [], 0
+    for turn in range(1, max_turns + 1):
+        png = dk.ruled_png(dk.grab(rect))
+        msg = f"Task: {task}\nWhat happened so far:\n" + ("\n".join(history[-12:]) or "(nothing yet)")
+        d = llm.complete([{"role": "system", "content": _VISION_RULES}, {"role": "user", "content": msg}],
+                         json_schema=_VISION_SCHEMA, images=[png], project_id=project_id, run_id=run_id, max_tokens=900)
+        calls += 1
+        act = d.get("action") or ("none" if d.get("done") else "wait_for_change")
+        if d.get("done") or act == "none":
+            return {"ok": True, "actions": actions, "error": None,
+                    "evidence": {"outcome": str(d.get("thought", ""))[:300], "turns": turn, "vision_calls": calls}}
+        if _DANGER.search(f"{d.get('text', '')} {d.get('keys', '')}"):
+            return {"ok": False, "actions": actions, "evidence": {}, "error": "stopped before a destructive action; needs approval"}
+        try:
+            if window:
+                w.focus(window)
+            if act == "click":
+                res = dk.click_at(rect, float(d["x"]), float(d["y"]))
+                dk.wait_change(rect, timeout=4)
+            elif act == "type":
+                res = dk.type_text(str(d.get("text", "")))
+            elif act == "keys":
+                res = dk.keys(str(d.get("keys", "")))
+            else:
+                res = {"changed": dk.wait_change(rect, timeout=300)}
+            ok = True
+        except Exception as e:
+            res, ok = {"error": f"{type(e).__name__}: {e}"}, False
+        label = f"{act} " + (f"({d.get('x')},{d.get('y')})" if act == "click" else str(d.get("text") or d.get("keys") or ""))
+        rec = {"action": act, **{k: d.get(k) for k in ("x", "y", "text", "keys")}, "result": "ok" if ok else str(res.get("error"))[:200]}
+        actions.append(rec)
+        history.append(f"{turn}. {str(d.get('thought', ''))[:200]} -> {label} -> {rec['result']}")
+        if run_id:
+            db.audit(project_id, run_id, "ui_action", {**rec, "mode": "vision"})
+    return {"ok": False, "actions": actions, "evidence": {"vision_calls": calls}, "error": f"stopped after {max_turns} turns"}
+
+
 def _verify(before: dict, after: dict, decision: dict) -> bool:
     if decision.get("action") in ("wait", "none"):
         return True
@@ -160,6 +224,13 @@ def explore(project_id: str, run_id: str, step: dict, budget: int = 25, desktop:
         import time
         time.sleep(1.5)
         obs = desktop.observe(window)
+    # Screen-reactive tasks (games, drawing, waiting for the user's move) or apps whose UI tree is empty (canvas,
+    # games): switch to the vision loop. Needs a vision model; screenshots are PII-blurred inside llm.complete.
+    if isinstance(desktop, Desktop) and llm.available() and (_NEEDS_SCREEN.search(task) or len(obs.get("elements", [])) < 3):
+        try:
+            return interactive(project_id, run_id, task, window)
+        except Exception as e:
+            actions.append({"action": "vision_mode", "result": f"unavailable: {e}"[:200]})
     fails = 0
     streak = 0  # consecutive actions with no visible effect
     for _ in range(budget):

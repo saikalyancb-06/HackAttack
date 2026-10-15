@@ -12,7 +12,8 @@ from backend import config
 from backend.kg import rag, store
 from backend.ledger import db
 
-WF_DIR = config.ROOT / "workflows"
+# Learned plans live in data/workflows (repo workflows/ holds the team's hand-written §6 workflows, another format)
+WF_DIR = config.DATA_DIR / "workflows"
 _THRESHOLD = 0.82
 
 

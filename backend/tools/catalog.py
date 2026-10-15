@@ -74,6 +74,12 @@ TOOLS: dict[str, T] = {
     "windows.explore": _spec("Operate a Windows desktop app that has no API (Notepad, Paint, Settings, Calculator...) by "
                              "reading its UI tree and clicking/typing step by step.",
                              {"app": "string", "task": "string"}, "write", "windows"),
+    "browser.agent": _spec("Do a task ON a website, live in a new tab of the user's browser that they watch: shopping "
+                           "(search, pick, add to cart), bookings, filling web forms, anything needing the user's login "
+                           "(the agent pauses and the user logs in themselves). Give the WHOLE web task in one step, with "
+                           "every detail the user gave. Never pays or places orders.",
+                           {"task": "string", "start_url": "https URL of the site's home page if known (optional)"},
+                           "write", "browser", ["task"]),
 }
 
 
@@ -194,6 +200,10 @@ def execute(project_id: str, run_id: str, tool: str, args: dict, step: dict | No
     if tool == "kg.search":
         from backend.kg import store
         return {"nodes": store.search_nodes(project_id, args.get("type"), args.get("text"), 20)}
+    if tool == "browser.agent":
+        from backend.agent import browser_bridge
+        return browser_bridge.run(project_id, run_id, step or {}, args,
+                                  should_stop=(step or {}).get("_should_stop") or (lambda: False))
     if tool == "windows.explore":
         from backend.agent import explore
         return explore.explore(project_id, run_id, step or {"description": args.get("task", ""), "args": args})

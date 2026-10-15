@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Product - PenMart</title>
+<style>body{font-family:Segoe UI,Arial;margin:0}header{display:flex;gap:16px;padding:12px 20px;background:#2874f0;color:#fff}header a{color:#fff}
+main{padding:24px}button{padding:10px 18px;background:#ff9f00;color:#fff;border:0;border-radius:4px;font-size:15px;cursor:pointer}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5)}#modal div{background:#fff;width:360px;margin:12vh auto;padding:20px;border-radius:8px}
+#modal input{width:100%;padding:8px;margin:8px 0;box-sizing:border-box}</style></head>
+<body>
+<header><b>PenMart</b><a id="loginLink" href="login.html">Login</a><a id="cartLink" href="cart.html">Cart (<span id="cartCount">0</span>)</a></header>
+<main><h1 id="pname">Product</h1><p>In stock · Free delivery</p>
+<button id="addToCart">ADD TO CART</button> <span id="msg"></span></main>
+<div id="modal"><div><h3>Login to continue</h3><p>Please log in to add items to your cart.</p>
+<label>Enter Email/Mobile number<input id="loginUser" aria-label="Enter Email/Mobile number"></label>
+<label>Password<input id="loginPass" type="password" aria-label="Password"></label>
+<button id="loginBtn">Login</button></div></div>
+<script src="shop.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id') || 'blue-pen';
+document.getElementById('pname').textContent = PRODUCTS[id];
+document.title = PRODUCTS[id] + ' - PenMart';
+document.getElementById('addToCart').onclick = () => {
+  if (!S.user) { document.getElementById('modal').style.display = 'block'; return; }
+  S.add(id); document.getElementById('cartCount').textContent = S.cart.length;
+  document.getElementById('msg').textContent = 'Added to cart!';
+};
+document.getElementById('loginBtn').onclick = () => {
+  const u = document.getElementById('loginUser').value, p = document.getElementById('loginPass').value;
+  if (u && p) { localStorage.setItem('pm_user', 'user'); document.getElementById('modal').style.display = 'none';
+    const l = document.getElementById('loginLink'); l.textContent = 'My Account'; }
+};
+</script>
+</body></html>

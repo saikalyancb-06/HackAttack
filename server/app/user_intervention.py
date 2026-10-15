@@ -166,7 +166,7 @@ def detect_user_intervention_needed(
         return {
             "type": INTERVENTION_TYPE_LOGIN,
             "reason": f"User is not logged in on {app_name}. Authentication is required to proceed with this action.",
-            "prompt": f"Please log in to your {app_name} account. I will wait for you to complete your login, and once you are logged in, I will automatically resume and complete adding the item to your cart.",
+            "prompt": f"Please log in to your account on {app_name}. I will wait for you to complete your login, and once you are logged in, I will automatically resume and complete adding the item to your cart.",
             "wait_for": "LOGIN_SUCCESS",
             "app_name": app_name,
             "element_id": header_login_btns[0].id if header_login_btns else (password_fields[0].id if password_fields else None)

@@ -1,7 +1,9 @@
 "use client";
 import React, { useMemo, useState } from "react";
 import { api, Run, Step } from "@/lib/api";
-import { Icon, Json, PIIBadge, RiskChip, RouteIcon, Spinner, StatusChip, fileName, hasPII } from "./ui";
+import { Icon, Json, PIIBadge, Redacted, RiskChip, RouteIcon, Spinner, StatusChip, fileName, hasPII } from "./ui";
+import { BrowserCard, ClarifyCard } from "./LiveCards";
+import { AnswerBlock } from "./Tabs";
 
 const ACTIVE = ["running"];
 
@@ -120,7 +122,7 @@ function StepRow({ pid, step, onEdit }: { pid: string; step: Step; onEdit: (s: S
           {isActive ? <Spinner /> : <RouteIcon route={step.route} tool={step.tool} />}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 500, textDecoration: muted ? "line-through" : "none" }}>{step.description}</div>
+          <div style={{ fontSize: 13.5, fontWeight: 500, textDecoration: muted ? "line-through" : "none" }}><Redacted text={step.description} /></div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2, flexWrap: "wrap" }}>
             <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{step.step_id} · {step.tool}{step.foreach ? " · for each" : ""}</span>
             {step.foreach && step.attempts > 1 ? <span className="chip chip-muted">{step.attempts} tool calls</span>
@@ -173,9 +175,10 @@ function EditStep({ pid, step, onClose }: { pid: string; step: Step; onClose: ()
   );
 }
 
-export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpenApprovals, onSuggestion, onOpenReport }: {
+export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpenApprovals, onSuggestion, onOpenReport, questions, browser, onRefresh }: {
   pid: string; run: Run | undefined; logs: any[]; report: any; suggestions: any[]; approvals: any[];
   onOpenApprovals: () => void; onSuggestion: (id: string, accept: boolean) => void; onOpenReport?: () => void;
+  questions?: any[]; browser?: any; onRefresh?: () => void;
 }) {
   const [editing, setEditing] = useState<Step | null>(null);
   const [showLog, setShowLog] = useState(false);
@@ -217,6 +220,12 @@ export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpen
       </div>
 
       <AssessmentCard a={run.assessment} />
+
+      {run.status === "needs_input" && questions?.length ? (
+        <ClarifyCard pid={pid} runId={run.run_id} questions={questions} onDone={() => onRefresh && onRefresh()} />
+      ) : null}
+
+      {browser ? <BrowserCard b={browser} /> : null}
 
       {plan.length ? (
         <div>
@@ -269,7 +278,12 @@ export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpen
             <span style={{ flex: 1 }} />
             {onOpenReport ? <button className="btn btn-sm" onClick={onOpenReport}><Icon.report width={13} height={13} /> View full report</button> : null}
           </div>
-          <div style={{ fontSize: 14, lineHeight: 1.6 }}>{report.summary}</div>
+          {report.answer ? <AnswerBlock text={report.answer} /> : null}
+          <div style={{ display: "grid", gap: 4 }}>
+            {String(report.summary || "").split(/\n+/).filter(Boolean).map((line: string, i: number) => (
+              <div key={i} style={{ fontSize: i === 0 ? 14.5 : 13.5, fontWeight: i === 0 ? 600 : 400, lineHeight: 1.55 }}><Redacted text={line} /></div>
+            ))}
+          </div>
           {report.artifacts?.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {Array.from(new Map(report.artifacts.map((a: any) => [a.path, a])).values()).slice(0, 10).map((a: any) => (

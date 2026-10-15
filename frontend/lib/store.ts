@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { API, api, Run, Step } from "./api";
+import { extensionReady, extRequest, onExtensionEvent } from "./extension";
 
 export type State = {
   runs: Record<string, Run>;
@@ -11,9 +12,11 @@ export type State = {
   graph: { nodes: any[]; edges: any[] };
   connected: boolean;
   kgPulse: number;
+  clarifications: Record<string, any[]>;   // run_id -> questions waiting for the user
+  browser: Record<string, any>;            // run_id -> live state of its browser tab task
 };
 
-const initial: State = { runs: {}, logs: {}, reports: {}, approvals: [], suggestions: {}, graph: { nodes: [], edges: [] }, connected: false, kgPulse: 0 };
+const initial: State = { runs: {}, logs: {}, reports: {}, approvals: [], suggestions: {}, graph: { nodes: [], edges: [] }, connected: false, kgPulse: 0, clarifications: {}, browser: {} };
 
 function upsertStep(plan: Step[], step: Step): Step[] {
   const i = plan.findIndex((s) => s.step_id === step.step_id);
@@ -68,6 +71,10 @@ function reducer(s: State, a: any): State {
     }
     case "graph":
       return { ...s, graph: a.graph, kgPulse: s.kgPulse + 1 };
+    case "clarification":
+      return { ...s, clarifications: { ...s.clarifications, [a.run_id]: a.questions } };
+    case "browser":
+      return { ...s, browser: { ...s.browser, [a.run_id]: { ...(s.browser[a.run_id] || {}), ...a.patch } } };
     default:
       return s;
   }
@@ -93,6 +100,10 @@ export function useOperator(pid: string | null) {
       dispatch({ type: "suggestions", run_id: rid, list: sugs });
       if (["done", "partial", "failed", "stopped"].includes(run.status)) {
         dispatch({ type: "report", run_id: rid, report: await api.get(`/projects/${pid}/runs/${rid}/report`) });
+      }
+      if (run.status === "needs_input") {
+        const c = await api.get(`/projects/${pid}/runs/${rid}/clarification`);
+        if (c.questions?.length && !c.answered) dispatch({ type: "clarification", run_id: rid, questions: c.questions });
       }
     } catch {}
   }, [pid]);
@@ -136,8 +147,50 @@ export function useOperator(pid: string | null) {
     on("kg_update", (d) => dispatch({ type: "graph", graph: d }));
     on("log", (d) => dispatch({ type: "log", run_id: d.run_id, text: d.text, ts: d.ts }));
     on("report", (d) => dispatch({ type: "report", run_id: d.run_id, report: d.report }));
+    on("clarification", (d) => dispatch({ type: "clarification", run_id: d.run_id, questions: d.questions }));
+    on("browser_task", (d) => dispatchBrowserTask(d));
+    on("browser_control", (d) => { if (d.command === "stop") extRequest("STOP"); });
     es.onerror = () => dispatch({ type: "connected", value: false });
-    return () => es.close();
+
+    // A web step asks this page to run it in a new tab through the extension
+    const dispatched = new Set<string>();
+    async function dispatchBrowserTask(d: any) {
+      const key = `${d.run_id}:${d.step_id}`;
+      if (dispatched.has(key)) return;
+      dispatched.add(key);
+      const report = (body: any) => api.post(`/projects/${pid}/runs/${d.run_id}/steps/${d.step_id}/browser`, body).catch(() => {});
+      dispatch({ type: "browser", run_id: d.run_id, patch: { step_id: d.step_id, task: d.task, phase: "opening" } });
+      if (!extensionReady()) {
+        dispatch({ type: "browser", run_id: d.run_id, patch: { phase: "no_extension" } });
+        return report({ kind: "end", outcome: "UNAVAILABLE" });
+      }
+      const res = await extRequest("START_TASK", { task: d.task, startUrl: d.start_url, runRef: { pid, run_id: d.run_id, step_id: d.step_id } });
+      if (!res.success) {
+        dispatch({ type: "browser", run_id: d.run_id, patch: { phase: "error", error: res.error } });
+        return report({ kind: "end", outcome: "UNAVAILABLE", reason: res.error });
+      }
+      dispatch({ type: "browser", run_id: d.run_id, patch: { phase: "running", url: res.url } });
+      report({ kind: "started", url: res.url });
+    }
+    const offExt = onExtensionEvent((ev: any) => {
+      const ref = ev?.runRef;
+      if (!ref || ref.pid !== pid) return;
+      const send = (body: any) => api.post(`/projects/${pid}/runs/${ref.run_id}/steps/${ref.step_id}/browser`, body).catch(() => {});
+      if (ev.kind === "state") {
+        dispatch({ type: "browser", run_id: ref.run_id, patch: { phase: ev.state?.waitingForUser ? "user_turn" : "running", state: ev.state, lastLog: ev.log || undefined } });
+        send({ kind: "state", state: ev.state, log: ev.log });
+      } else if (ev.kind === "end") {
+        dispatch({ type: "browser", run_id: ref.run_id, patch: { phase: "ended", end: ev } });
+        send({ kind: "end", ...ev });
+      }
+    });
+    // pick up web steps that started while this page was closed
+    api.get(`/projects/${pid}/browser/pending`).then((list: any[]) => list.filter((p) => !p.started).forEach((p) =>
+      api.get(`/projects/${pid}/runs/${p.run_id}`).then((run: any) => {
+        const st = (run.plan || []).find((s: any) => s.step_id === p.step_id);
+        if (st) dispatchBrowserTask({ run_id: p.run_id, step_id: p.step_id, task: st.args?.task || st.description, start_url: st.args?.start_url });
+      }))).catch(() => {});
+    return () => { es.close(); offExt(); };
   }, [pid, loadApprovals, loadGraph, loadRun]);
 
   const stateRef = useRef(state);

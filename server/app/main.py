@@ -244,7 +244,35 @@ def plan_action(payload: SanitizedContextPackage):
     from server.app.product_constraints import extract_product_constraints
     product_constraints = payload.product_constraints or extract_product_constraints(payload.instruction_sanitized)
 
-    # 3. Try Best Autonomous Neural LLM Planner (Groq Cloud API or Local Ollama)
+    # 3. Human-in-the-loop first, whichever planner runs next: if the page shows a login / OTP / CAPTCHA wall,
+    #    hand the page to the user instead of letting the LLM try to get past it. Skipped right after the user
+    #    has just finished their turn (the next observation decides whether anything is still blocking).
+    from server.app.user_intervention import detect_user_intervention_needed
+    just_resumed = bool(payload.history) and isinstance(payload.history[-1], dict) and payload.history[-1].get("user_intervention_completed")
+    if not just_resumed:
+        intervention = detect_user_intervention_needed(
+            elements=payload.elements, page=payload.page, task=payload.instruction_sanitized,
+            requested_action=(product_constraints or {}).get("requested_action"), history=payload.history)
+        pw = next((e for e in payload.elements if e.role == "password" or "[REDACTED_PASSWORD]" in (e.label or "")
+                   or "password" in (e.id or "").lower()), None)
+        if not intervention and pw:  # any visible password field: the user signs in, never the agent
+            intervention = {"reason": "a sign-in form is on the page", "element_id": pw.id,
+                            "prompt": "This site needs you to sign in. Please enter your ID and password in the page "
+                                      "(the agent cannot see them), then click \"I'm done — continue\"."}
+        if intervention and not intervention.get("element_id"):
+            first_input = next((e for e in payload.elements if e.role in ("input", "textarea")), None)
+            intervention["element_id"] = first_input.id if first_input else None
+        if intervention:
+            return AgentPlanResponse(
+                task=payload.instruction_sanitized,
+                reasoning_summary=f"Human-in-the-loop required: {intervention['reason']}",
+                actions=[BrowserAction(type="ask_user", question=intervention["prompt"],
+                                       target=ActionTarget(element_id=intervention.get("element_id")))],
+                subgoals=subgoals, completed_subgoals=completed_subgoals, remaining_goal=remaining_goal,
+                product_constraints=product_constraints, selected_target=payload.selected_target,
+                state="AWAIT_USER_INTERVENTION")
+
+    # 4. Try Best Autonomous Neural LLM Planner (Groq Cloud API; local Ollama only if ALLOW_LOCAL_LLM=1)
     try:
         actions, summary, model_name = plan_with_best_llm(payload)
         return AgentPlanResponse(

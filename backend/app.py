@@ -1,10 +1,11 @@
-"""FastAPI app: HTTP API + SSE (CONTRACTS §8).  Run:  python -m uvicorn backend.app:app --port 8000"""
+﻿"""FastAPI app: HTTP API + SSE (CONTRACTS Â§8).  Run:  python -m uvicorn backend.app:app --port 8000"""
 from __future__ import annotations
 
 import asyncio
 import json
 import mimetypes
 import queue
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,12 @@ async def lifespan(app: FastAPI):
         for r in db.list_runs(p["id"]):
             if r["status"] == "running" and not loop.is_active(r["run_id"]):
                 db.set_run_status(p["id"], r["run_id"], "paused", "server restarted; press Resume to continue from the last finished step")
+    from backend.channels import telegram  # optional second channel (TELEGRAM_BOT_TOKEN in .env)
+    bot = telegram.from_env()
+    bot_task = asyncio.create_task(bot.run()) if bot else None
     yield
+    if bot_task:
+        bot_task.cancel()
 
 
 app = FastAPI(title="Autonomous AI Operator", lifespan=lifespan)
@@ -76,6 +82,47 @@ def thread_runs(pid: str, tid: str):
     return db.list_runs(_pid(pid), tid)
 
 
+_NOT_KNOWN = re.compile(r"(?i)(does not|doesn'?t|do not|did not|no|not) (contain|have|include|mention|specify|state|provide|"
+                        r"say|list|cover|give)|not (found|available|specified|stated|mentioned|provided)|"
+                        r"don'?t have (anything|any|that|this)|no (information|details|data|mention)|"
+                        r"cannot (find|determine|answer)|unable to (find|determine)|unknown")
+
+
+def answer_question(pid: str, question: str) -> dict:
+    """Project memory first; if it can't fully answer, answer from the web, keeping what memory knew."""
+    out = rag.ask(pid, question)
+    if out.get("sources") and not _NOT_KNOWN.search(out.get("answer", "")):
+        return out
+    web = _web_answer(pid, question, known=out.get("answer", "") if out.get("sources") else "")
+    web["sources"] = out.get("sources") or []
+    return web
+
+
+def _web_answer(pid: str, question: str, known: str = "") -> dict:
+    """General question the project knowledge can't answer: search the web, answer with sources."""
+    from backend.tools import research
+    try:
+        hits = research.search(question, k=6).get("results", [])
+    except Exception:
+        hits = []
+    if not llm.available():
+        return {"answer": "Here is what I found on the web:\n" + "\n".join(f"- {h['title']}: {h['url']}" for h in hits[:5]) if hits
+                else "I couldn't find an answer in this project's knowledge or on the web.", "sources": []}
+    ctx = "\n".join(f"[{i}] {h['title']} â€” {h['snippet']} ({h['url']})" for i, h in enumerate(hits, 1))
+    answer = llm.complete([
+        {"role": "system", "content": "Answer the user's question directly and helpfully in plain text: no markdown at all (no **, #, tables); "
+         "use short lines and '- ' bullets. "
+         "Use the web results when relevant and cite them as [n]. If the question is subjective (e.g. 'best'), give a "
+         "clear recommendation with 2-3 short reasons, and mention what would change the choice. If the question is too "
+         "vague (e.g. missing a location), give a sensible general answer AND ask one short follow-up question."},
+        {"role": "user", "content": f"Question: {question}\n\n"
+                                    + (f"From the project's saved results (partial): {known[:1500]}\n\n" if known else "")
+                                    + f"Web results:\n{ctx or '(none)'}"}], project_id=pid, max_tokens=900)
+    answer = re.sub(r"(?m)^#+\s*", "", str(answer)).replace("**", "").replace("__", "").replace("*", "")  # plain text
+    links = "\n".join(f"[{i}] {h['url']}" for i, h in enumerate(hits[:5], 1))
+    return {"answer": f"{answer}\n\n{links}".strip(), "sources": []}
+
+
 @app.post("/projects/{pid}/threads/{tid}/messages")
 def post_message(pid: str, tid: str, body: dict = Body(...)):
     _pid(pid)
@@ -90,7 +137,7 @@ def post_message(pid: str, tid: str, body: dict = Body(...)):
         db.touch_thread(pid, tid, title=text[:60])
     db.add_message(pid, tid, "user", mode, text)
     if mode == "question":
-        out = rag.ask(pid, text)
+        out = answer_question(pid, text)
         db.add_message(pid, tid, "assistant", "answer", out["answer"], {"sources": out["sources"]})
         return {"answer": db.mask_text(pid, out["answer"]), "sources": out["sources"]}
     rid = loop.start(pid, tid, text)
@@ -106,6 +153,34 @@ def get_run(pid: str, rid: str):
         raise HTTPException(404, "run not found")
     run["active"] = loop.is_active(rid)
     return run
+
+
+@app.post("/projects/{pid}/runs/{rid}/clarify")
+def clarify(pid: str, rid: str, body: dict = Body(...)):
+    """Answers to the clarifying questions: {answers: {q1: "...", q2: "__agent_choice__"}}."""
+    try:
+        return loop.answer_clarification(_pid(pid), rid, body.get("answers") or {})
+    except KeyError:
+        raise HTTPException(404, "run not found")
+
+
+@app.get("/projects/{pid}/runs/{rid}/clarification")
+def clarification(pid: str, rid: str):
+    return {"questions": db.get_run_setting(_pid(pid), rid, "clarification", []) or [],
+            "answered": bool(db.get_run_setting(pid, rid, "clarified", False))}
+
+
+@app.post("/projects/{pid}/runs/{rid}/steps/{sid}/browser")
+def browser_progress(pid: str, rid: str, sid: str, body: dict = Body(...)):
+    """Progress of a browser.agent step, relayed by the Operator page from the browser extension."""
+    from backend.agent import browser_bridge
+    return browser_bridge.report(_pid(pid), rid, sid, body)
+
+
+@app.get("/projects/{pid}/browser/pending")
+def browser_pending(pid: str):
+    from backend.agent import browser_bridge
+    return browser_bridge.pending(_pid(pid))
 
 
 @app.post("/projects/{pid}/runs/{rid}/{action}")
@@ -143,7 +218,15 @@ def patch_step(pid: str, rid: str, sid: str, body: dict = Body(...)):
 
 @app.get("/projects/{pid}/runs/{rid}/report")
 def run_report(pid: str, rid: str):
-    return loop.report(_pid(pid), rid)
+    rep = loop.report(_pid(pid), rid)
+    if not rep.get("answer") and rep["status"] in ("done", "partial") and not db.get_run_setting(pid, rid, "answer_tried", False):
+        db.set_run_setting(pid, rid, "answer_tried", True)  # runs from before this feature: write the answer once
+        try:
+            db.set_run_setting(pid, rid, "answer", loop.compose_answer(pid, rid))
+            rep = loop.report(pid, rid)
+        except Exception:
+            pass
+    return rep
 
 
 # ---------------------------------------------------------------- approvals / suggestions
@@ -188,7 +271,7 @@ def graph(pid: str):
 
 @app.post("/projects/{pid}/ask")
 def ask(pid: str, body: dict = Body(...)):
-    out = rag.ask(_pid(pid), str(body.get("question", "")))
+    out = answer_question(_pid(pid), str(body.get("question", "")))
     return {"answer": db.mask_text(pid, out["answer"]), "sources": out["sources"]}
 
 
@@ -303,3 +386,4 @@ async def sse(pid: str, request: Request):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+

@@ -6,7 +6,8 @@ import { RunCard } from "@/components/RunCard";
 import { ApprovalsTab } from "@/components/Approvals";
 import { KnowledgeTab } from "@/components/Knowledge";
 import { AuditTab, ReportModal, ReportTab, ToolsTab } from "@/components/Tabs";
-import { Icon, PIIBadge, Spinner, hasPII, timeAgo } from "@/components/ui";
+import { Icon, PIIBadge, Redacted, Spinner, hasPII, timeAgo } from "@/components/ui";
+import { extRequest } from "@/lib/extension";
 
 const EXAMPLES = [
   { t: "Internship research", q: "Find three internship opportunities suitable for a third-year computer science student, compare their eligibility criteria, save the best matches to a spreadsheet and prepare personalized draft emails for each opportunity." },
@@ -125,6 +126,11 @@ export default function Page() {
   const runIds = useMemo(() => msgs.filter((m) => m.kind === "run" && m.run_id).map((m) => m.run_id!), [msgs]);
   const activeRunId = runIds[runIds.length - 1] || null;
   const anyLive = Object.values(state.runs).some((r: any) => r.status === "running");
+  const browserStates = Object.values(state.browser || {}) as any[];
+  // Agent working: the border glows and the composer is locked (like Claude). Waiting on you: blue border, composer free.
+  const agentBusy = anyLive || browserStates.some((b) => b.phase === "running" || b.phase === "opening");
+  const agentWaiting = !agentBusy && (browserStates.some((b) => b.phase === "user_turn") || state.approvals.length > 0 ||
+    Object.values(state.runs).some((r: any) => r.status === "needs_input"));
 
   const newProject = async () => {
     const name = `Project ${projects.length + 1}`;
@@ -144,6 +150,7 @@ export default function Page() {
     try { await api.post("/settings/outage", { on }); } catch {}
   };
   const stopAll = async () => {
+    if (browserStates.some((b) => ["running", "opening", "user_turn"].includes(b.phase))) extRequest("STOP");
     for (const r of Object.values(state.runs) as any[]) {
       if (["running", "paused"].includes(r.status)) await api.post(`/projects/${pid}/runs/${r.run_id}/stop`).catch(() => {});
     }
@@ -166,16 +173,17 @@ export default function Page() {
       <aside className={`left-panel ${leftOpen ? "open" : ""}`} style={{ borderRight: "1px solid var(--border)", background: "var(--panel-2)", display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 14px 10px" }}>
           <Icon.logo />
-          <span className="font-serif-display" style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.2 }}>Operator</span>
+          <span className="font-serif-display" style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.2 }}>atom8</span>
         </div>
         <div style={{ padding: "0 10px" }}>
           <button className="btn" style={{ width: "100%", justifyContent: "flex-start" }} onClick={newThread}><Icon.plus /> New task</button>
         </div>
         <div style={{ padding: "14px 14px 4px", fontSize: 11, fontWeight: 700, color: "var(--faint)", textTransform: "uppercase", letterSpacing: 0.6, display: "flex", alignItems: "center" }}>
-          Projects <span style={{ flex: 1 }} />
+          Projects <span style={{ fontWeight: 600, marginLeft: 4 }}>({projects.length})</span><span style={{ flex: 1 }} />
           <button className="btn btn-ghost btn-sm" style={{ padding: 2 }} onClick={newProject} title="New project"><Icon.plus width={13} height={13} /></button>
         </div>
-        <div style={{ padding: "0 8px", display: "grid", gap: 1 }}>
+        {/* capped + scrollable so a long project list never pushes threads off screen */}
+        <div className="scroll-thin" style={{ padding: "0 8px", display: "grid", gap: 1, maxHeight: "28vh", overflowY: "auto", flexShrink: 0, alignContent: "start" }}>
           {projects.map((p) => (
             <button key={p.id} onClick={() => setPid(p.id)} className="btn btn-ghost" style={{ justifyContent: "flex-start", background: p.id === pid ? "var(--panel)" : undefined, boxShadow: p.id === pid ? "inset 0 0 0 1px var(--border)" : undefined }}>
               <Icon.folder width={14} height={14} style={{ color: "var(--muted)" }} />
@@ -211,7 +219,7 @@ export default function Page() {
       </aside>
 
       {/* ---------------- center */}
-      <main style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
+      <main className={`agent-frame ${agentBusy ? "busy" : agentWaiting ? "waiting" : ""}`} style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
         <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 18px", borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
           <button className="btn btn-ghost drawer-btn left" onClick={() => setLeftOpen(true)} title="Projects & threads"><Icon.list /></button>
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -252,7 +260,7 @@ export default function Page() {
               if (m.role === "user") {
                 return (
                   <div key={m.id} className="fade-in" style={{ justifySelf: "end", maxWidth: "82%" }}>
-                    <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                    <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "14px 14px 4px 14px", padding: "10px 14px", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" }}><Redacted text={m.text} /></div>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 4 }}>
                       <span className="chip chip-muted">{m.kind === "question" ? "question" : "task"}</span>
                       {hasPII(m.text) ? <PIIBadge /> : null}
@@ -264,14 +272,15 @@ export default function Page() {
                 return (
                   <RunCard key={m.id} pid={pid!} run={state.runs[m.run_id]} logs={state.logs[m.run_id] || []} report={state.reports[m.run_id]}
                     suggestions={state.suggestions[m.run_id] || []} approvals={state.approvals}
-                    onOpenApprovals={() => setTab("approvals")} onSuggestion={onSuggestion} onOpenReport={() => setFullReport(m.run_id!)} />
+                    onOpenApprovals={() => setTab("approvals")} onSuggestion={onSuggestion} onOpenReport={() => setFullReport(m.run_id!)}
+                    questions={state.clarifications[m.run_id]} browser={state.browser[m.run_id]} onRefresh={() => loadRun(m.run_id!)} />
                 );
               }
               return (
                 <div key={m.id} className="fade-in" style={{ display: "flex", gap: 10 }}>
                   <Icon.logo />
                   <div style={{ flex: 1, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
-                    {m.text}
+                    <Redacted text={m.text} />
                     {m.data?.sources?.length ? <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 4 }}>from knowledge: {m.data.sources.join(", ")}</div> : null}
                   </div>
                 </div>
@@ -282,8 +291,14 @@ export default function Page() {
 
         <div style={{ padding: "0 20px 18px" }}>
           <div className="card" style={{ maxWidth: 940, margin: "0 auto", padding: 10 }}>
-            <textarea className="scroll-thin" value={text} onChange={(e) => setText(e.target.value)} rows={2}
-              placeholder="Describe a goal, or ask about this project…"
+            {agentBusy ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 6px 8px", fontSize: 12.5, color: "var(--accent)", fontWeight: 600 }}>
+                <span className="pulse-dot" style={{ width: 8, height: 8, borderRadius: 9, background: "var(--accent)" }} />
+                Operator is working{browserStates.some((b) => b.phase === "running") ? " in the browser tab" : ""} — typing is paused until it finishes or needs you
+              </div>
+            ) : null}
+            <textarea className="scroll-thin" value={text} onChange={(e) => setText(e.target.value)} rows={2} disabled={agentBusy}
+              placeholder={agentBusy ? "Wait for the agent, or press Stop…" : "Describe a goal, or ask about this project…"}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               style={{ width: "100%", resize: "none", border: "none", outline: "none", background: "transparent", color: "var(--text)", fontSize: 14, lineHeight: 1.5, padding: "4px 6px" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -292,7 +307,11 @@ export default function Page() {
               ))}
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 11, color: "var(--faint)" }}>PII is masked before anything leaves this PC</span>
-              <button className="btn btn-primary" disabled={sending || !text.trim()} onClick={() => send()}>{sending ? <Spinner /> : <Icon.send />}</button>
+              {agentBusy ? (
+                <button className="btn btn-danger" onClick={stopAll} title="Stop the agent"><Icon.stop width={13} height={13} /> Stop</button>
+              ) : (
+                <button className="btn btn-primary" disabled={sending || !text.trim()} onClick={() => send()}>{sending ? <Spinner /> : <Icon.send />}</button>
+              )}
             </div>
           </div>
         </div>

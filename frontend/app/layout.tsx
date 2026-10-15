@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Operator",
+  title: "atom8",
   description: "Autonomous AI operator: plans, acts, recovers and verifies across your apps",
 };
 

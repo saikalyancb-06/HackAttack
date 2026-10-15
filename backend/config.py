@@ -59,7 +59,13 @@ LLM_PROVIDER = env("LLM_PROVIDER", "groq")
 LLM_MODEL = env("LLM_MODEL", "openai/gpt-oss-120b")
 LLM_FAST_MODEL = env("LLM_FAST_MODEL", "openai/gpt-oss-20b")
 LLM_ALT_MODEL = env("LLM_ALT_MODEL", "qwen/qwen3.8-27b")
-LLM_VISION_MODEL = env("LLM_VISION_MODEL", "")  # none on this Groq account: screenshots never go to the LLM
+# Vision (CONTRACTS §11): Groq qwen accepts image_url PNGs. Every screenshot is PII-blurred before it is sent.
+LLM_VISION_MODEL = env("LLM_VISION_MODEL", env("VISION_MODEL", "qwen/qwen3.8-27b"))
+# Extra providers (CONTRACTS §11 chain Groq -> Cerebras -> OpenRouter), used only when every Groq key/model failed.
+FALLBACK_PROVIDERS = [
+    ("cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", env("CEREBRAS_MODEL", "gpt-oss-120b")),
+    ("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", env("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")),
+]
 GUARD_MODEL = env("GUARD_MODEL", "openai/gpt-oss-safeguard-20b")
 PROMPT_GUARD_MODEL = env("PROMPT_GUARD_MODEL", "meta-llama/llama-prompt-guard-2-86m")
 LLM_BASE_URL = env("LLM_BASE_URL", "https://api.groq.com/openai/v1")

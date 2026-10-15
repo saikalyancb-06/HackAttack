@@ -113,6 +113,29 @@ export function hasPII(v: any): boolean {
   }
 }
 
+/** Text with every masked value (<EMAIL_1>, [REDACTED_PHONE] ...) drawn as a red box saying it is redacted. */
+export function Redacted({ text }: { text: string }) {
+  if (!text) return null;
+  const re = /<(EMAIL|PHONE|AADHAAR|PAN|CARD|UPI|SECRET|PASSWORD)_\d+>|\[REDACTED_([A-Z_]+)\]/g;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const kind = (m[1] || m[2] || "DATA").toLowerCase().replace(/_/g, " ");
+    out.push(
+      <span key={m.index} title="Personal data: redacted before it reached the agent or the LLM"
+        style={{ display: "inline-flex", alignItems: "center", gap: 3, border: "1.5px dashed var(--bad)", background: "var(--bad-soft)",
+                 color: "var(--bad)", borderRadius: 5, padding: "0 5px", margin: "0 1px", fontSize: "0.88em", fontWeight: 600, whiteSpace: "nowrap" }}>
+        🔒 {kind} redacted
+      </span>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return <>{out}</>;
+}
+
 export function PIIBadge() {
   return (
     <span className="chip chip-violet" title="Personal data is replaced by placeholders before it reaches the LLM, the ledger or this screen">

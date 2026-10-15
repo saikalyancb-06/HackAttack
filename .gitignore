@@ -15,3 +15,10 @@ __pycache__/
 frontend/node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
+
+# local Python virtualenv (recreate: python -m venv .venv && pip install -r requirements-local.txt)
+.venv/
+venv/
+# build output
+dist/
+*.log

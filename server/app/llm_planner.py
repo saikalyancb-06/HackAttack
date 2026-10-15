@@ -72,11 +72,17 @@ SUPPORTED JSON ACTION SCHEMA:
 CRITICAL: Return ONLY a valid JSON object matching this schema.
 """
 
+_REPO_ENV = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
+
+
 def get_groq_api_key() -> Optional[str]:
     load_dotenv("D:/webman/.env", override=True)
-    key = os.getenv("GROQ_API_KEY")
-    if key and key.strip().startswith("gsk_"):
-        return key.strip()
+    load_dotenv(_REPO_ENV)  # Operator's .env: GROQ_API_KEY1..3
+    # Operator's own keys (GROQ_API_KEY1..9, repo .env) first: the old D:/webman GROQ_API_KEY may be revoked
+    for name in [f"GROQ_API_KEY{i}" for i in range(1, 10)] + ["GROQ_API_KEY"]:
+        key = os.getenv(name)
+        if key and key.strip().startswith("gsk_"):
+            return key.strip()
     return None
 
 def check_groq_status() -> dict:
@@ -90,6 +96,8 @@ def check_groq_status() -> dict:
     }
 
 def check_ollama_status() -> dict:
+    if os.getenv("ALLOW_LOCAL_LLM") != "1":  # local models are opt-in only
+        return {"available": False, "provider": "ollama", "model": None, "active_models": []}
     try:
         r = requests.get("http://127.0.0.1:11434/api/tags", timeout=1.2)
         if r.status_code == 200:

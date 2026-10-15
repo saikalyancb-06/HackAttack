@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Empty, Icon, Json, PIIBadge, RiskChip, Spinner, StatusChip, fileName, hasPII } from "./ui";
+import { Empty, Icon, Json, PIIBadge, Redacted, RiskChip, Spinner, StatusChip, fileName, hasPII } from "./ui";
 
 const KIND: Record<string, { label: string; color: string }> = {
   assessment: { label: "Intent & feasibility", color: "var(--info)" },
@@ -81,6 +81,29 @@ export function AuditTab({ pid, runId, tick }: { pid: string; runId: string | nu
   );
 }
 
+/** The result the user asked for (findings / recommendation / list), shown before the process summary. */
+export function AnswerBlock({ text, big = false }: { text: string; big?: boolean }) {
+  const lines = String(text || "").split(/\n+/).filter((l) => l.trim());
+  if (!lines.length) return null;
+  return (
+    <div style={{ border: "1.5px solid var(--ok)", background: "var(--ok-soft)", borderRadius: 12, padding: big ? "16px 18px" : "12px 14px", display: "grid", gap: 6 }}>
+      <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--ok)", display: "flex", gap: 6, alignItems: "center" }}>
+        <Icon.sparkle width={13} height={13} /> Here's what you asked for
+      </div>
+      {lines.map((l, i) => {
+        const bullet = /^\s*[-•*]\s+/.test(l);
+        return (
+          <div key={i} style={{ fontSize: i === 0 && !bullet ? (big ? 15.5 : 14.5) : 13.5, fontWeight: i === 0 && !bullet ? 600 : 400,
+            lineHeight: 1.55, paddingLeft: bullet ? 14 : 0, position: "relative", wordBreak: "break-word" }}>
+            {bullet ? <span style={{ position: "absolute", left: 2, color: "var(--ok)" }}>•</span> : null}
+            <Redacted text={l.replace(/^\s*[-•*]\s+/, "").replace(/\*\*/g, "")} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function count(v: any): number {
   return Array.isArray(v) ? v.length : typeof v === "number" ? v : 0;
 }
@@ -106,7 +129,7 @@ export function ReportView({ pid, runId, report, run, wide = false }: { pid: str
     </div>
   );
   const artifacts: any[] = Array.from(new Map((rep.artifacts || []).map((a: any) => [a.path, a])).values());
-  const sentences = String(rep.summary || "").split(/(?<=\.)\s+(?=[A-Z0-9])/).filter(Boolean);
+  const sentences = String(rep.summary || "").split(/\n+/).filter(Boolean);
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <div>
@@ -118,6 +141,9 @@ export function ReportView({ pid, runId, report, run, wide = false }: { pid: str
         {r?.goal_masked ? <div style={{ marginTop: 8, fontSize: 14, color: "var(--muted)", lineHeight: 1.55 }}>{r.goal_masked}</div> : null}
       </div>
 
+      {rep.answer ? <AnswerBlock text={rep.answer} big={wide} /> : null}
+
+      <div style={{ fontWeight: 650, fontSize: 13, color: "var(--muted)", marginBottom: -10 }}>How it went</div>
       <div style={{ display: "grid", gap: 8 }}>
         {sentences.map((s, i) => (
           <div key={i} style={{ fontSize: 14, lineHeight: 1.6, padding: "10px 14px", borderRadius: 10, background: "var(--panel-2)",

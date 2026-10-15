@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Login - PenMart</title></head>
+<body style="font-family:Segoe UI,Arial;padding:24px"><h2>Login to continue</h2>
+<label>Enter Email/Mobile number <input id="loginUser" aria-label="Enter Email/Mobile number"></label><br><br>
+<label>Password <input id="loginPass" type="password" aria-label="Password"></label><br><br>
+<button id="loginBtn">Login</button>
+<script src="shop.js"></script>
+<script>document.getElementById('loginBtn').onclick = () => {
+  if (document.getElementById('loginUser').value && document.getElementById('loginPass').value) {
+    localStorage.setItem('pm_user', 'user'); history.length > 1 ? history.back() : (location.href = 'index.html'); } };</script>
+</body></html>
