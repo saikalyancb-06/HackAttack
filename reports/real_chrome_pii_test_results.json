@@ -1,0 +1,23 @@
+{
+  "scenario_1_httpbin_form": {
+    "site": "https://httpbin.org/forms/post",
+    "egress_decision": "EGRESS_REDACTED",
+    "detected_pii": 1,
+    "redacted_pii": 3,
+    "visual_preservation_pct": 98.79,
+    "zero_leakage": true
+  },
+  "scenario_2_github_login": {
+    "site": "https://github.com/login",
+    "egress_decision": "EGRESS_REDACTED",
+    "password_redacted": true,
+    "visual_preservation_pct": 98.71,
+    "zero_leakage": true
+  },
+  "scenario_3_python_public": {
+    "site": "https://www.python.org",
+    "egress_decision": "EGRESS_ALLOWED",
+    "false_positives": 0,
+    "allowed_to_egress": true
+  }
+}

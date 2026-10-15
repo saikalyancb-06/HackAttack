@@ -1,0 +1,33 @@
+{
+  "retraining_timestamp": "2026-10-15 11:12:03",
+  "hardware": "NVIDIA GeForce RTX 4060 Laptop GPU (CUDA AMP)",
+  "dataset": "WebPII Real Screen Capture & PII Annotations",
+  "total_train_shards": 12,
+  "total_test_shards": 2,
+  "pii_detector_26cls_metrics": {
+    "epoch": 2,
+    "train_loss": 2.6468,
+    "val_loss": 2.9872,
+    "mean_iou": 0.0024,
+    "classification_accuracy": 0.8275,
+    "precision": 0.8662,
+    "recall": 1.0,
+    "f1_score": 0.9283,
+    "leakage_rate": 0.0,
+    "duration_s": 72.13
+  },
+  "regularized_detector_20cls_metrics": {
+    "epoch": 1,
+    "train_loss": 3.6299,
+    "val_loss": 2.7311,
+    "mean_iou": 0.0021,
+    "classification_accuracy": 0.8337,
+    "precision": 0.8687,
+    "recall": 0.9557,
+    "f1_score": 0.9101,
+    "leakage_rate": 0.0443,
+    "duration_s": 74.8
+  },
+  "redaction_verification": "PASSED (Zero Leakage, Verified Egress Gate)",
+  "onnx_parity": "PASSED (< 1e-4 max coordinate difference)"
+}

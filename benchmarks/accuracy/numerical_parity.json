@@ -1,0 +1,7 @@
+{
+  "model": "heavy_visual_pii_detector.onnx",
+  "box_max_diff": 5.960464477539063e-08,
+  "logits_max_diff": 1.430511474609375e-06,
+  "parity_status": "PASS",
+  "file_size_mb": 1.7484
+}

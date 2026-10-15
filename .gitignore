@@ -1,0 +1,17 @@
+# secrets
+.env
+# runtime data (per-project ledgers, caches, logs, raw datasets)
+data/raw/
+data/projects/
+data/cache/
+data/logs/
+data/drafts/
+data/settings.json
+data/mcp_servers.json
+# build / tooling
+__pycache__/
+*.pyc
+.pytest_cache/
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo

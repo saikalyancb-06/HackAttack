@@ -1,0 +1,17 @@
+# Reference workflow (CONTRACTS.md §6). Runs saved from the UI ("Save as workflow") land next to this file
+# and are matched by embedding similarity before planning, so repeated goals skip the LLM planner.
+name: excel.upsert_rows
+app: excel
+intent: "Insert or update rows in an Excel sheet by key"
+risk: write
+params: {path: string, sheet: string, key_column: string, rows: list}
+steps:
+  - step_id: s1
+    description: "Insert or update the rows"
+    tool: office.excel_upsert_rows
+    args: {path: "{path}", sheet: "{sheet}", key_column: "{key_column}", rows: "{rows}"}
+verify:
+  tool: office.excel_find_row
+  expect: "every row key exists with matching values"
+produces: {type: spreadsheet, key: "{path}#{sheet}"}
+approved: true

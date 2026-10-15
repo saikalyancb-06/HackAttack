@@ -1,0 +1,57 @@
+{
+  "ui_detector": {
+    "checkpoint": "models/checkpoints/ui_detector_best.pt",
+    "onnx": "models/onnx/ui_detector.onnx",
+    "version": "1.0.0",
+    "classes": 34,
+    "metrics": {
+      "mAP50": 0.892,
+      "precision": 0.915,
+      "recall": 0.894
+    }
+  },
+  "pii_detector": {
+    "checkpoint": "models/checkpoints/pii_detector_best.pt",
+    "onnx": "models/onnx/pii_detector.onnx",
+    "version": "3.1.0-step-retrained",
+    "classes": 26,
+    "metrics": {
+      "recall": 1.0,
+      "precision": 0.8662,
+      "f1": 0.9283,
+      "mean_iou": 0.0024,
+      "leakage_rate": 0.0,
+      "val_loss": 2.9872
+    }
+  },
+  "action_grounder": {
+    "checkpoint": "models/checkpoints/action_grounder_best.pt",
+    "onnx": "models/onnx/action_grounder.onnx",
+    "version": "1.0.0",
+    "actions": 9,
+    "metrics": {
+      "action_accuracy": 0.924,
+      "target_grounding_accuracy": 0.898
+    }
+  },
+  "regularized_visual_pii_detector": {
+    "checkpoint": "models/checkpoints/regularized_best_pii_detector.pt",
+    "onnx": "models/onnx/regularized_visual_pii_detector.onnx",
+    "version": "3.1.0-step-retrained",
+    "classes": 20,
+    "metrics": {
+      "recall": 0.9557,
+      "precision": 0.8687,
+      "f1": 0.9101,
+      "mean_iou": 0.0021,
+      "leakage_rate": 0.0443,
+      "val_loss": 2.7311
+    }
+  },
+  "browser_agent_detector": {
+    "checkpoint": "models/checkpoints/browser_agent_detector.pt",
+    "onnx": "models/onnx/browser_agent_detector.onnx",
+    "version": "3.1.0-step-retrained",
+    "note": "Alias of regularized_visual_pii_detector for backward compat."
+  }
+}

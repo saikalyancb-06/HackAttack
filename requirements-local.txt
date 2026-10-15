@@ -1,0 +1,20 @@
+# Only for running the local reference backend in backend/ (not part of the C2/A3 deliverable)
+-r requirements-friend.txt
+fastapi
+uvicorn
+openai
+mcp
+openpyxl
+python-docx
+ddgs
+beautifulsoup4
+requests
+playwright
+pywin32
+send2trash
+pytesseract
+pymupdf
+pyyaml
+pillow
+numpy
+pytest
