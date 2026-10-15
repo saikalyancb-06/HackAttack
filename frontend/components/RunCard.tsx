@@ -88,6 +88,14 @@ function Evidence({ pid, step }: { pid: string; step: Step }) {
           ))}
         </div>
       ) : null}
+      {out?.file_preview || out?.stdout || out?.stderr ? (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 4 }}>
+            {out.file_preview ? `Contents of ${fileName(out.path)}` : out.stdout ? "Command output" : "Errors"}
+          </div>
+          <Json value={out.file_preview || out.stdout || out.stderr} max={3000} />
+        </div>
+      ) : null}
       <details>
         <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--faint)" }}>Arguments & raw output</summary>
         <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
@@ -104,7 +112,7 @@ function StepRow({ pid, step, onEdit }: { pid: string; step: Step; onEdit: (s: S
   const isActive = step.status === "running";
   const muted = step.status === "skipped";
   return (
-    <div className="fade-in" style={{ borderTop: "1px solid var(--border)", padding: "9px 2px", opacity: muted ? 0.55 : 1 }}>
+    <div className="fade-in" style={{ borderTop: "1px solid var(--border)", padding: "12px 4px", opacity: muted ? 0.55 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setOpen(!open)}>
         <span style={{ width: 26, height: 26, borderRadius: 7, display: "grid", placeItems: "center", flexShrink: 0,
           background: step.status === "done" ? "var(--ok-soft)" : step.status === "reused" ? "var(--violet-soft)" : step.status === "failed" ? "var(--bad-soft)" : "var(--panel-2)",
@@ -165,9 +173,9 @@ function EditStep({ pid, step, onClose }: { pid: string; step: Step; onClose: ()
   );
 }
 
-export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpenApprovals, onSuggestion }: {
+export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpenApprovals, onSuggestion, onOpenReport }: {
   pid: string; run: Run | undefined; logs: any[]; report: any; suggestions: any[]; approvals: any[];
-  onOpenApprovals: () => void; onSuggestion: (id: string, accept: boolean) => void;
+  onOpenApprovals: () => void; onSuggestion: (id: string, accept: boolean) => void; onOpenReport?: () => void;
 }) {
   const [editing, setEditing] = useState<Step | null>(null);
   const [showLog, setShowLog] = useState(false);
@@ -189,7 +197,7 @@ export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpen
   const canResume = ["paused", "partial", "failed"].includes(run.status);
 
   return (
-    <div className="card fade-in" style={{ padding: 14, display: "grid", gap: 10 }}>
+    <div className="card fade-in" style={{ padding: "18px 20px", display: "grid", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Icon.sparkle width={15} height={15} style={{ color: "var(--accent)" }} />
         <span style={{ fontWeight: 650 }}>Run</span>
@@ -255,8 +263,13 @@ export function RunCard({ pid, run, logs, report, suggestions, approvals, onOpen
       ) : null}
 
       {report && !isLive && run.status !== "paused" ? (
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "grid", gap: 8 }}>
-          <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{report.summary}</div>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontWeight: 650, fontSize: 13.5 }}>Result</span>
+            <span style={{ flex: 1 }} />
+            {onOpenReport ? <button className="btn btn-sm" onClick={onOpenReport}><Icon.report width={13} height={13} /> View full report</button> : null}
+          </div>
+          <div style={{ fontSize: 14, lineHeight: 1.6 }}>{report.summary}</div>
           {report.artifacts?.length ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {Array.from(new Map(report.artifacts.map((a: any) => [a.path, a])).values()).slice(0, 10).map((a: any) => (

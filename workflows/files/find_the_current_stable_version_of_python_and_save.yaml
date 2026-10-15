@@ -1,0 +1,69 @@
+name: find_the_current_stable_version_of_python_and_save
+app: files
+intent: Find the current stable version of Python and save the answer with the source
+  link to a text file python_version.txt
+risk: write
+steps:
+- step_id: s1
+  description: Search for the current stable Python version on the official Python
+    website
+  tool: research.search
+  args:
+    query: Python latest stable version site:python.org
+    k: 5
+  route: browser
+  risk: read
+- step_id: s2
+  description: Fetch the top result pages to get the version information
+  tool: research.fetch
+  args:
+    url: '{{item.url}}'
+  foreach: '{{s1.results}}'
+  produces:
+    type: dataset
+    key: fetched_pages
+  route: browser
+  risk: read
+- step_id: s3
+  description: Extract the stable version number and source URL from fetched pages
+  tool: llm.generate
+  args:
+    instruction: From the fetched pages, identify the official Python website page
+      that states the current stable release version (e.g., "Python 3.12.4"). Return
+      the version string and the page URL. If multiple pages contain the version,
+      choose the official python.org page. If the page content is unavailable, fall
+      back to the search snippet. Output JSON with fields version and source.
+    inputs:
+      search: '{{s1}}'
+      pages: '{{s2}}'
+    format: json
+    schema:
+      type: object
+      properties:
+        version:
+          type: string
+        source:
+          type: string
+      required:
+      - version
+      - source
+  produces:
+    type: dataset
+    key: extracted_version
+  route: think
+  risk: read
+- step_id: s4
+  description: Write the version and source link to a text file
+  tool: files.write_text
+  args:
+    path: python_version.txt
+    text: 'Python version: {{s3.version}}
+
+      Source: {{s3.source}}'
+  produces:
+    type: file
+    key: python_version
+  route: shell
+  risk: write
+approved: true
+source_run: r_04c707

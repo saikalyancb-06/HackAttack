@@ -33,7 +33,7 @@ _LIMITS = [
     (r"\b(every (day|week|morning|monday)|daily at|remind me|schedule (it|this) (for|at))\b",
      "running on a recurring schedule", "I run it now; you can re-run the saved workflow later"),
     (r"\b(print|printer|fax)\b", "printing or faxing", "I prepare the document ready to print"),
-    (r"\b(cook|drive|deliver|pick up|physically|in person)\b", "acting in the physical world", "I can plan or research it"),
+    (r"\b(physically|in person|in real life|drive (me|to)|cook (a|me|dinner|lunch|breakfast))\b", "acting in the physical world", "I can plan or research it"),
 ]
 _SEND = re.compile(r"\b(send|email them|mail them|submit|apply on|post (it|on))\b", re.I)
 _PATH = re.compile(r"(?:[A-Za-z]:\\[^\s\"'<>|?*]+|~[\\/][^\s\"'<>|?*]+)")

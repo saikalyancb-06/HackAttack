@@ -82,6 +82,31 @@ def outlook_send_draft(draft_id: str, drafts_dir: str | None = None) -> dict:
     return office.outlook_send_draft(draft_id, drafts_dir)
 
 
+@mcp.tool(description="Create or edit a PowerPoint deck (visible): slides [{title, body?, notes?, index?}]; index edits that slide. risk=write")
+def ppt_edit_slides(path: str, slides: list[dict], open_after: bool = True) -> dict:
+    return office.ppt_edit_slides(path, slides, open_after)
+
+
+@mcp.tool(description="Read slide titles and texts of a .pptx. risk=read")
+def ppt_read(path: str) -> dict:
+    return office.ppt_read(path)
+
+
+@mcp.tool(description="Create or edit a Word document (visible): append_text and/or replacements [{find, replace}]. risk=write")
+def word_edit(path: str, append_text: str | None = None, replacements: list[dict] | None = None, open_after: bool = True) -> dict:
+    return office.word_edit(path, append_text, replacements, open_after)
+
+
+@mcp.tool(description="Set Excel cells or formulas (visible): cells {A1: 5, B1: '=SUM(A1:A3)'}; returns computed values. risk=write")
+def excel_set_cells(path: str, sheet: str, cells: dict, open_after: bool = True) -> dict:
+    return office.excel_set_cells(path, sheet, cells, open_after)
+
+
+@mcp.tool(description="Open a document in its default app so the user can see it. risk=read")
+def office_open(path: str) -> dict:
+    return office.office_open(path)
+
+
 @mcp.tool(description="Simulate an Excel outage (every excel_* tool raises while on). risk=read")
 def set_outage(on: bool) -> dict:
     return office.set_outage(on)

@@ -354,6 +354,175 @@ def word_read_doc(path: str) -> dict:
     return {"text": "\n".join(par.text for par in docx.Document(p).paragraphs)}
 
 
+# ---------------------------------------------------------------- live, visible editing (Word / Excel / PowerPoint)
+class _Live:
+    """Attach to (or start) the user's visible Office app and leave it open afterwards, so the user sees the edit."""
+
+    def __init__(self, prog_id: str):
+        self.prog_id = prog_id
+
+    def __enter__(self):
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        self.app = win32com.client.Dispatch(self.prog_id)
+        try:
+            self.app.Visible = True
+        except Exception:
+            pass
+        return self.app
+
+    def __exit__(self, *exc):
+        import pythoncom
+        self.app = None
+        pythoncom.CoUninitialize()
+        return False
+
+
+def _same(a: str, b: Path) -> bool:
+    try:
+        return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+    except Exception:
+        return False
+
+
+def _open_or_new(collection, path: Path, open_fn, new_fn):
+    for i in range(1, collection.Count + 1):
+        doc = collection.Item(i)
+        if _same(doc.FullName, path):
+            return doc
+    return open_fn(str(path)) if path.exists() else new_fn()
+
+
+def _ext(path: str, ext: str) -> Path:
+    p = Path(path)
+    return p if p.suffix.lower() == ext else p.with_suffix(ext)
+
+
+def ppt_edit_slides(path: str, slides: list[dict], open_after: bool = True) -> dict:
+    """Create or edit a PowerPoint deck. Each slide: {"title", "body"?, "notes"?, "index"?}; index updates that existing
+    slide, otherwise a new slide is appended. The deck is saved and stays open in PowerPoint."""
+    if not isinstance(slides, list) or not slides:
+        raise ValueError("slides must be a non-empty list of {title, body?, notes?, index?}")
+    p = _ext(path, ".pptx")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _Live("PowerPoint.Application") as app:
+        pres = _open_or_new(app.Presentations, p, lambda f: app.Presentations.Open(f, WithWindow=True),
+                            lambda: app.Presentations.Add(True))
+        for sd in slides:
+            sd = sd if isinstance(sd, dict) else {"title": str(sd)}
+            idx = int(sd.get("index") or 0)
+            if 0 < idx <= pres.Slides.Count:
+                slide = pres.Slides(idx)
+            else:
+                layout = 2 if sd.get("body") else 1  # ppLayoutText / ppLayoutTitle
+                slide = pres.Slides.Add(pres.Slides.Count + 1, layout)
+            if sd.get("title") is not None and slide.Shapes.HasTitle:
+                slide.Shapes.Title.TextFrame.TextRange.Text = str(sd["title"])
+            if sd.get("body"):
+                body = "\r".join(sd["body"]) if isinstance(sd["body"], list) else str(sd["body"])
+                for k in range(1, slide.Shapes.Placeholders.Count + 1):
+                    ph = slide.Shapes.Placeholders(k)
+                    if not (slide.Shapes.HasTitle and ph.Name == slide.Shapes.Title.Name) and ph.HasTextFrame:
+                        ph.TextFrame.TextRange.Text = body
+                        break
+            if sd.get("notes"):
+                slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = str(sd["notes"])
+        if _same(pres.FullName, p):
+            pres.Save()
+        else:
+            pres.SaveAs(str(p))
+        titles = [pres.Slides(i).Shapes.Title.TextFrame.TextRange.Text if pres.Slides(i).Shapes.HasTitle else ""
+                  for i in range(1, pres.Slides.Count + 1)]
+        if not open_after:
+            pres.Close()
+    return {"path": str(p), "slides": len(titles), "titles": titles, "backend": "powerpoint-com"}
+
+
+def ppt_read(path: str) -> dict:
+    p = _ext(path, ".pptx")
+    if not p.exists():
+        raise FileNotFoundError(f"no presentation at {p}")
+    from pptx import Presentation  # read without touching the user's PowerPoint window
+    out = []
+    for s in Presentation(str(p)).slides:
+        texts = [sh.text_frame.text for sh in s.shapes if sh.has_text_frame and sh.text_frame.text]
+        out.append({"title": s.shapes.title.text if s.shapes.title is not None else (texts[0] if texts else ""), "texts": texts})
+    return {"path": str(p), "slides": out}
+
+
+def word_edit(path: str, append_text: str | None = None, replacements: list[dict] | None = None,
+              open_after: bool = True) -> dict:
+    """Create or edit a Word document in the visible Word app: find/replace [{find, replace}] and/or append paragraphs."""
+    if not append_text and not replacements:
+        raise ValueError("nothing to do: give append_text and/or replacements")
+    p = _ext(path, ".docx")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _Live("Word.Application") as app:
+        doc = _open_or_new(app.Documents, p, lambda f: app.Documents.Open(f), lambda: app.Documents.Add())
+        for r in replacements or []:
+            f = doc.Content.Find
+            f.ClearFormatting()
+            f.Replacement.ClearFormatting()
+            # positional (pywin32 ignores keyword names here): FindText, MatchCase, MatchWholeWord, MatchWildcards,
+            # MatchSoundsLike, MatchAllWordForms, Forward, Wrap=wdFindContinue, Format, ReplaceWith, Replace=wdReplaceAll
+            f.Execute(str(r.get("find", "")), False, False, False, False, False, True, 1, False, str(r.get("replace", "")), 2)
+        if append_text:
+            rng = doc.Content
+            rng.InsertParagraphAfter()
+            rng.InsertAfter(str(append_text))
+        if _same(doc.FullName, p):
+            doc.Save()
+        else:
+            doc.SaveAs2(str(p), 16)
+        if not open_after:
+            doc.Close(False)
+    return {"path": str(p), "backend": "word-com"}
+
+
+def excel_set_cells(path: str, sheet: str, cells: dict, open_after: bool = True) -> dict:
+    """Set cell values or formulas ({"A1": 5, "B1": "=SUM(A1:A3)"}) in the visible Excel app; returns computed values."""
+    _check_outage()
+    if not isinstance(cells, dict) or not cells:
+        raise ValueError("cells must be an object like {\"A1\": 5, \"B2\": \"=A1*2\"}")
+    p = _ext(path, ".xlsx")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _xl_lock, _Live("Excel.Application") as xl:
+        wb = _open_or_new(xl.Workbooks, p, lambda f: xl.Workbooks.Open(f), lambda: xl.Workbooks.Add())
+        names = [wb.Worksheets(i).Name for i in range(1, wb.Worksheets.Count + 1)]
+        if sheet in names:
+            ws = wb.Worksheets(sheet)
+        elif not _same(wb.FullName, p) and wb.Worksheets.Count == 1:
+            ws = wb.Worksheets(1)
+            ws.Name = sheet[:31]
+        else:
+            ws = wb.Worksheets.Add(After=wb.Worksheets(wb.Worksheets.Count))
+            ws.Name = sheet[:31]
+        for addr, v in cells.items():
+            if isinstance(v, str) and v.startswith("="):
+                ws.Range(addr).Formula = v
+            else:
+                ws.Range(addr).Value = _cell(v)
+        xl.Calculate()
+        values = {a: _cell(ws.Range(a).Value) for a in cells}
+        if _same(wb.FullName, p):
+            wb.Save()
+        else:
+            wb.SaveAs(str(p), 51)
+        if not open_after:
+            wb.Close(False)
+    return {"path": str(p), "sheet": sheet, "values": values, "backend": "excel-com"}
+
+
+def office_open(path: str) -> dict:
+    """Open any document in its default app (Word, Excel, PowerPoint, PDF viewer...) for the user to see."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"no file at {p}")
+    os.startfile(str(p))
+    return {"opened": str(p)}
+
+
 # ---------------------------------------------------------------- Outlook (drafts as .eml)
 def _drafts_dir(drafts_dir: str | None) -> Path:
     d = Path(drafts_dir) if drafts_dir else config.DATA_DIR / "drafts"

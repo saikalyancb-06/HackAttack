@@ -81,51 +81,76 @@ export function AuditTab({ pid, runId, tick }: { pid: string; runId: string | nu
   );
 }
 
-export function ReportTab({ pid, runId, report, run }: { pid: string; runId: string | null; report: any; run: any }) {
-  const [rep, setRep] = useState<any>(report);
+function count(v: any): number {
+  return Array.isArray(v) ? v.length : typeof v === "number" ? v : 0;
+}
+
+/** Full report for ONE run. Used in the Report tab and in the full-width report window. */
+export function ReportView({ pid, runId, report, run, wide = false }: { pid: string; runId: string; report?: any; run?: any; wide?: boolean }) {
+  const [rep, setRep] = useState<any>(report || null);
+  const [r, setR] = useState<any>(run || null);
   useEffect(() => {
-    if (report) { setRep(report); return; }
-    if (runId) api.get(`/projects/${pid}/runs/${runId}/report`).then(setRep).catch(() => {});
-  }, [pid, runId, report]);
-  if (!runId) return <Empty icon={<Icon.report />} title="No run selected" hint="Start a task in the chat to see its report." />;
-  if (!rep) return <div style={{ padding: 16 }}><Spinner /></div>;
-  const stat = (label: string, n: number, cls: string) => (
-    <div className="panel" style={{ padding: "10px 12px" }}>
-      <div style={{ fontSize: 22, fontWeight: 700 }} className={cls}>{n}</div>
-      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{label}</div>
+    let alive = true;
+    setRep(report || null);
+    setR(run || null);
+    api.get(`/projects/${pid}/runs/${runId}/report`).then((x) => alive && setRep(x)).catch(() => {});
+    if (!run) api.get(`/projects/${pid}/runs/${runId}`).then((x) => alive && setR(x)).catch(() => {});
+    return () => { alive = false; };
+  }, [pid, runId, report, run]);
+  if (!rep) return <div style={{ padding: 24 }}><Spinner /></div>;
+  const plan = r?.plan || r?.steps || [];
+  const stat = (label: string, n: number, color: string) => (
+    <div className="panel" style={{ padding: "14px 16px", flex: "1 1 120px", minWidth: 110 }}>
+      <div style={{ fontSize: 26, fontWeight: 700, color, lineHeight: 1.1 }}>{n}</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{label}</div>
     </div>
   );
+  const artifacts: any[] = Array.from(new Map((rep.artifacts || []).map((a: any) => [a.path, a])).values());
+  const sentences = String(rep.summary || "").split(/(?<=\.)\s+(?=[A-Z0-9])/).filter(Boolean);
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span className="font-serif-display" style={{ fontSize: 18, fontWeight: 600 }}>Run report</span>
-        <StatusChip status={rep.status} />
+    <div style={{ display: "grid", gap: 20 }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="font-serif-display" style={{ fontSize: wide ? 24 : 20, fontWeight: 600 }}>Run report</span>
+          <StatusChip status={rep.status || r?.status} />
+          <span className="mono" style={{ fontSize: 11.5, color: "var(--faint)" }}>{runId}</span>
+        </div>
+        {r?.goal_masked ? <div style={{ marginTop: 8, fontSize: 14, color: "var(--muted)", lineHeight: 1.55 }}>{r.goal_masked}</div> : null}
       </div>
-      <div style={{ fontSize: 13.5, lineHeight: 1.55 }}>{rep.summary}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-        {stat("done", rep.done?.length || 0, "")}
-        {stat("reused from KG", rep.reused?.length || 0, "")}
-        {stat("degraded", rep.degraded?.length || 0, "")}
-        {stat("failed / open", rep.failed?.length || 0, "")}
-        {stat("rejected", rep.rejected?.length || 0, "")}
-        {stat("artifacts", rep.artifacts?.length || 0, "")}
+
+      <div style={{ display: "grid", gap: 8 }}>
+        {sentences.map((s, i) => (
+          <div key={i} style={{ fontSize: 14, lineHeight: 1.6, padding: "10px 14px", borderRadius: 10, background: "var(--panel-2)",
+            borderLeft: `3px solid ${/unresolved|failed|need a recipient|degraded/i.test(s) ? "var(--warn)" : /privacy/i.test(s) ? "var(--violet)" : "var(--border-strong)"}` }}>{s}</div>
+        ))}
       </div>
-      <div className="panel" style={{ padding: 12, borderColor: "var(--violet)", background: "var(--violet-soft)" }}>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", fontWeight: 650, color: "var(--violet)" }}><Icon.shield width={14} height={14} /> Privacy</div>
-        <div style={{ fontSize: 13, marginTop: 4 }}>
-          {rep.privacy?.pii_masked || 0} PII items masked, {rep.privacy?.regions_blurred || 0} screenshot regions blurred, <b>{rep.privacy?.raw_pii_to_llm || 0} raw PII sent to LLM</b>.
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {stat("done", count(rep.done), "var(--ok)")}
+        {stat("reused from knowledge", count(rep.reused), "var(--violet)")}
+        {stat("degraded", count(rep.degraded), "var(--warn)")}
+        {stat("failed / open", count(rep.failed), "var(--bad)")}
+        {stat("rejected", count(rep.rejected), "var(--muted)")}
+        {stat("artifacts", artifacts.length, "var(--text)")}
+      </div>
+
+      <div className="panel" style={{ padding: 16, borderColor: "var(--violet)", background: "var(--violet-soft)" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 650, color: "var(--violet)" }}><Icon.shield width={15} height={15} /> Privacy</div>
+        <div style={{ fontSize: 14, marginTop: 6, lineHeight: 1.55 }}>
+          {rep.privacy?.pii_masked || 0} PII items masked · {rep.privacy?.regions_blurred || 0} screenshot regions blurred · <b>{rep.privacy?.raw_pii_to_llm || 0} raw PII sent to the LLM</b>
         </div>
       </div>
-      {rep.artifacts?.length ? (
+
+      {artifacts.length ? (
         <div>
-          <div style={{ fontWeight: 650, fontSize: 12.5, marginBottom: 6 }}>Artifacts</div>
-          <div style={{ display: "grid", gap: 6 }}>
-            {Array.from(new Map(rep.artifacts.map((a: any) => [a.path, a])).values()).map((a: any) => (
-              <div key={a.path} style={{ display: "flex", gap: 8, alignItems: "center", border: "1px solid var(--border)", borderRadius: 9, padding: "7px 9px" }}>
+          <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 10 }}>Artifacts</div>
+          <div style={{ display: "grid", gridTemplateColumns: wide ? "repeat(auto-fill, minmax(280px, 1fr))" : "1fr", gap: 8 }}>
+            {artifacts.map((a: any) => (
+              <div key={a.path} style={{ display: "flex", gap: 10, alignItems: "center", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", background: "var(--panel)" }}>
                 {a.kind === "spreadsheet" ? <Icon.table /> : a.path.endsWith(".eml") ? <Icon.mail /> : <Icon.doc />}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{fileName(a.path)}</div>
-                  <div className="mono" style={{ fontSize: 10.5, color: "var(--faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.path}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, wordBreak: "break-all" }}>{fileName(a.path)}</div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--faint)", wordBreak: "break-all" }}>{a.path}</div>
                 </div>
                 <button className="btn btn-sm" onClick={() => api.post(`/projects/${pid}/open`, { path: a.path }).catch(() => {})}><Icon.open width={12} height={12} /> Open</button>
               </div>
@@ -133,18 +158,61 @@ export function ReportTab({ pid, runId, report, run }: { pid: string; runId: str
           </div>
         </div>
       ) : null}
-      {run?.plan?.length ? (
+
+      {plan.length ? (
         <div>
-          <div style={{ fontWeight: 650, fontSize: 12.5, marginBottom: 6 }}>Step outcomes</div>
-          {run.plan.map((s: any) => (
-            <div key={s.step_id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
-              <span className="mono" style={{ fontSize: 11, color: "var(--faint)", width: 30 }}>{s.step_id}</span>
-              <span style={{ flex: 1 }}>{s.description}</span>
-              <StatusChip status={s.status} />
-            </div>
-          ))}
+          <div style={{ fontWeight: 650, fontSize: 14, marginBottom: 10 }}>Step outcomes</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {plan.map((s: any) => (
+              <div key={s.step_id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, background: "var(--panel)" }}>
+                <span className="mono" style={{ fontSize: 11.5, color: "var(--faint)", minWidth: 30, paddingTop: 2 }}>{s.step_id}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.45 }}>{s.description}</div>
+                  <div className="mono" style={{ fontSize: 11, color: "var(--faint)", marginTop: 2 }}>{s.tool}</div>
+                  {s.error && s.status !== "done" ? <div style={{ fontSize: 12.5, color: s.status === "failed" ? "var(--bad)" : "var(--muted)", marginTop: 4, wordBreak: "break-word" }}>{s.error}</div> : null}
+                </div>
+                <StatusChip status={s.status} />
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+export function ReportTab({ pid, runs, initialRunId, onOpenFull }: { pid: string; runs: { run_id: string; goal: string; status?: string }[]; initialRunId: string | null; onOpenFull: (rid: string) => void }) {
+  const [sel, setSel] = useState<string | null>(initialRunId);
+  useEffect(() => { setSel(initialRunId); }, [initialRunId]);
+  if (!runs.length || !sel) return <Empty icon={<Icon.report />} title="No runs yet" hint="Every task you start gets its own report here." />;
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <select className="input" value={sel} onChange={(e) => setSel(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+          {runs.slice().reverse().map((r, i) => (
+            <option key={r.run_id} value={r.run_id}>Run {runs.length - i} · {(r.goal || r.run_id).slice(0, 70)}</option>
+          ))}
+        </select>
+        <button className="btn" onClick={() => onOpenFull(sel)} title="Open the full report"><Icon.open width={13} height={13} /> Expand</button>
+      </div>
+      <ReportView key={sel} pid={pid} runId={sel} />
+    </div>
+  );
+}
+
+export function ReportModal({ pid, runId, onClose }: { pid: string; runId: string; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,18,15,.55)", zIndex: 60, display: "grid", placeItems: "center", padding: 20 }}>
+      <div className="card scroll-thin" onClick={(e) => e.stopPropagation()}
+        style={{ width: "min(980px, 100%)", maxHeight: "92vh", overflow: "auto", padding: "26px 30px", position: "relative" }}>
+        <button className="btn btn-ghost" onClick={onClose} style={{ position: "absolute", top: 14, right: 14 }} title="Close (Esc)"><Icon.x /></button>
+        <ReportView pid={pid} runId={runId} wide />
+      </div>
     </div>
   );
 }

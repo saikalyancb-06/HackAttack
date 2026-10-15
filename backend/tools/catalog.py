@@ -43,6 +43,17 @@ TOOLS: dict[str, T] = {
                                          {"to": "email", "subject": "string", "body": "string"}, "write", "com"),
     "office.outlook_send_draft": _spec("Send a draft created earlier. Always needs human approval.", {"draft_id": "string"},
                                        "irreversible", "com"),
+    "office.ppt_edit_slides": _spec("Create or edit a PowerPoint presentation in the visible PowerPoint app (preferred over UI clicking). "
+                                    "slides: [{title, body?: str|list, notes?, index?}] - index edits that existing slide, otherwise appends.",
+                                    {"path": "string .pptx", "slides": "list of objects"}, "write", "com"),
+    "office.ppt_read": _spec("Read slide titles and texts of a .pptx.", {"path": "string"}, "read", "com"),
+    "office.word_edit": _spec("Create or edit a Word document in the visible Word app: append_text and/or replacements [{find, replace}].",
+                              {"path": "string .docx", "append_text": "string (optional)", "replacements": "list (optional)"},
+                              "write", "com", ["path"]),
+    "office.excel_set_cells": _spec("Set cells / formulas in a workbook in the visible Excel app: cells {\"A1\": 5, \"B1\": \"=SUM(A1:A3)\"}.",
+                                    {"path": "string .xlsx", "sheet": "string", "cells": "object"}, "write", "com"),
+    "office.office_open": _spec("Open an existing document in its app (Word/Excel/PowerPoint/PDF) so the user sees it.",
+                                {"path": "string"}, "read", "com"),
     "files.read_text": _spec("Read a text/docx/pdf/xlsx file as text.", {"path": "string"}, "read", "shell"),
     "files.write_text": _spec("Write a text file (creates folders).", {"path": "string", "text": "string"}, "write", "shell"),
     "files.append_text": _spec("Append to a text file.", {"path": "string", "text": "string"}, "write", "shell"),
@@ -157,8 +168,26 @@ def execute(project_id: str, run_id: str, tool: str, args: dict, step: dict | No
         return fn(**args)
     if tool == "shell.run_command":
         from backend.tools import shell
-        return shell.run_command(str(args["cmd"]), args.get("shell", "powershell"), args.get("cwd") or files_dir,
-                                 int(args.get("timeout", 60)))
+        cwd = Path(args.get("cwd") or files_dir)
+
+        def snap() -> dict:
+            try:
+                return {str(p): p.stat().st_mtime for p in cwd.iterdir() if p.is_file()}
+            except OSError:
+                return {}
+        before = snap()
+        out = shell.run_command(str(args["cmd"]), args.get("shell", "powershell"), str(cwd), int(args.get("timeout", 60)))
+        written = [p for p, m in snap().items() if before.get(p) != m]  # files the command created or changed
+        if written:
+            out["files_written"] = written
+            out["path"] = written[0]
+            try:
+                raw = Path(written[0]).read_bytes()[:8000]
+                enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"  # PowerShell '>' writes UTF-16
+                out["file_preview"] = raw.decode(enc, errors="replace").replace("\r", "")[:2000]
+            except Exception:
+                pass
+        return out
     if tool == "kg.ask":
         from backend.kg import rag
         return rag.ask(project_id, str(args["question"]))

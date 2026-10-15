@@ -53,6 +53,24 @@ def verify(project_id: str, step: dict, args: dict, output: Any) -> dict:
             ok = p.exists() and p.stat().st_size > 0 and (not probe or probe[:40] in text)
             return {"ok": ok, "checks": [f"{p.name} exists ({p.stat().st_size if p.exists() else 0} bytes)",
                                          "content matches" if ok else "content check failed"], "details": {"path": str(p)}}
+        if tool == "office.ppt_edit_slides":
+            from backend.tools.office import ppt_read
+            got = [s["title"].strip() for s in ppt_read(output["path"])["slides"]]
+            want = [str(s.get("title", "")).strip() for s in (args.get("slides") or []) if isinstance(s, dict) and s.get("title") is not None]
+            missing = [w for w in want if w not in got]
+            return {"ok": not missing, "checks": [f"{len(got)} slides in {Path(output['path']).name}: {got[:8]}"] +
+                    ([f"missing titles: {missing}"] if missing else ["every requested title is on a slide"]), "details": {}}
+        if tool == "office.word_edit":
+            from backend.tools.office import word_read_doc
+            text = word_read_doc(output["path"])["text"]
+            probes = [str(args.get("append_text") or "").strip()[:40]] + [str(r.get("replace", ""))[:40] for r in args.get("replacements") or []]
+            missing = [x for x in probes if x and x not in text]
+            return {"ok": not missing, "checks": ["document contains the new text" if not missing else f"not found in document: {missing}"], "details": {}}
+        if tool == "office.excel_set_cells":
+            vals = output.get("values") or {}
+            bad = [k for k, v in vals.items() if isinstance(v, str) and v.startswith("#")]
+            return {"ok": len(vals) == len(args.get("cells") or {}) and not bad,
+                    "checks": [f"cells now: {vals}"] + ([f"formula errors in {bad}"] if bad else []), "details": {}}
         if tool == "office.outlook_create_draft":
             p = Path(output.get("path", ""))
             raw = p.read_bytes() if p.exists() else b""

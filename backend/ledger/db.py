@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS approvals(approval_id TEXT PRIMARY KEY, run_id TEXT, 
     status TEXT, decision TEXT, edited_args_json TEXT, created_at TEXT, resolved_at TEXT);
 CREATE TABLE IF NOT EXISTS suggestions(sug_id TEXT PRIMARY KEY, run_id TEXT, text TEXT, patch_json TEXT, status TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS vault(placeholder TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS run_settings(run_id TEXT, key TEXT, value TEXT, PRIMARY KEY(run_id, key));
 """
 
 
@@ -372,6 +373,20 @@ def resolve_approval(project_id: str, approval_id: str, decision: str, edited_ar
     with _lock, connect(project_id) as c:
         c.execute("UPDATE approvals SET status='resolved', decision=?, edited_args_json=?, resolved_at=? WHERE approval_id=?",
                   (decision, json.dumps(mask_value(project_id, edited_args)) if edited_args else None, now(), approval_id))
+
+
+# ---------------------------------------------------------------- per-run settings (e.g. "allow all file writes")
+def set_run_setting(project_id: str, run_id: str, key: str, value) -> None:
+    with _lock, connect(project_id) as c:
+        c.executescript(_SCHEMA)
+        c.execute("INSERT OR REPLACE INTO run_settings VALUES(?,?,?)", (run_id, key, json.dumps(value)))
+
+
+def get_run_setting(project_id: str, run_id: str, key: str, default=None):
+    with connect(project_id) as c:
+        c.executescript(_SCHEMA)
+        r = c.execute("SELECT value FROM run_settings WHERE run_id=? AND key=?", (run_id, key)).fetchone()
+    return json.loads(r["value"]) if r else default
 
 
 # ---------------------------------------------------------------- suggestions

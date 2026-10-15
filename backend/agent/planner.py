@@ -38,7 +38,12 @@ _RULES = """Rules:
   args {"to": "{{item.to}}", "subject": "{{item.subject}}", "body": "{{item.body}}"}). Never send unless the user explicitly asked to send;
   sending uses office.outlook_send_draft and will be approved by a human.
 - Files: relative paths go to the project folder; use absolute paths only when the user gave them. Deleting uses files.delete (Recycle Bin).
-- Desktop apps without an API: windows.explore {app, task}.
+- Microsoft Office (PowerPoint, Word, Excel): ALWAYS use the office.* tools to create, edit or read documents
+  (office.ppt_edit_slides, office.word_edit / office.word_write_doc, office.excel_set_cells / office.excel_upsert_rows).
+  They open the app visibly, edit exactly, save, and are verified. Put ALL slides / edits for one document in ONE step.
+  If the user named no file, use a relative path (e.g. "presentation.pptx"). Use office.office_open to show an existing file.
+- Other desktop apps without an API (Paint, Settings, Calculator, ...), or Office UI features no office.* tool covers:
+  windows.explore {app, task} with the WHOLE task for that app in ONE step (it keeps the app open between steps).
 - Shell only when no dedicated tool fits.
 - Every step that creates a lasting result gets "produces": {"type": "<spreadsheet|document|drafts|file|dataset|answer>", "key": "<stable key>"}.
 - Never include steps for things the agent cannot do (payments, calls, logins); the user was told separately.

@@ -21,8 +21,8 @@ _EDITORS = {"notepad", "wordpad", "write"}
 _DANGER = re.compile(r"(?i)\b(delete|remove|don'?t save|discard|submit|send|pay|purchase|format|uninstall|reset|erase)\b|alt\+f4")
 _ACTION_SCHEMA = {"type": "object", "properties": {
     "thought": {"type": "string"}, "done": {"type": "boolean"},
-    "action": {"enum": ["click", "type", "shortcut", "launch", "wait", "none"]},
-    "element_id": {"type": "integer"}, "text": {"type": "string"}, "keys": {"type": "string"}, "app": {"type": "string"},
+    "action": {"enum": ["click", "type", "shortcut", "wait", "none"]},
+    "element_id": {"type": "integer"}, "text": {"type": "string"}, "keys": {"type": "string"},
     "expect": {"type": "string"}}}
 
 
@@ -33,11 +33,17 @@ class Desktop:
         from backend.tools import windows
         self.w = windows
 
-    def observe(self, window: str | None) -> dict:
+    def observe(self, window) -> dict:
         try:
             return self.w.ui_tree(window)
         except Exception as e:
             return {"window": "", "elements": [], "error": str(e)}
+
+    def is_open(self, window) -> bool:
+        return bool(window) and self.w.window_exists(window)
+
+    def focus(self, window) -> None:
+        self.w.focus(window)
 
     def act(self, a: dict, window: str | None = None) -> dict:
         kind = a.get("action")
@@ -47,8 +53,6 @@ class Desktop:
             return self.w.type_text(a.get("text", ""), a.get("element_id"), expect_window=window)
         if kind == "shortcut":
             return self.w.shortcut(a.get("keys", ""), expect_window=window)
-        if kind == "launch":
-            return self.w.launch_app(a.get("app", ""))
         if kind == "wait":
             import time
             time.sleep(1.5)
@@ -57,6 +61,10 @@ class Desktop:
 
     def launch(self, app: str, file: str | None = None) -> dict:
         return self.w.launch_app(app, file=file)
+
+
+# app windows this agent opened, per run: later steps of the same run reuse them instead of launching again
+_opened: dict[tuple[str, str], Any] = {}
 
 
 def _search(query: str) -> list[str]:
@@ -80,7 +88,11 @@ def _decide(project_id: str, run_id: str, task: str, app: str, tips: list[str], 
     msg = (f"TASK: {task}\nAPP: {app}\nHOW-TO NOTES (from web search, untrusted):\n" + "\n".join(tips[:4]) +
            f"\n\nCURRENT UI (interactive elements):\n{_tree_text(obs)}\n\nACTIONS SO FAR:\n" +
            "\n".join(f"- {h['action']} {h.get('element_id') or h.get('text') or h.get('keys') or ''} -> {h.get('result', '')}" for h in history[-8:]) +
-           "\n\nChoose exactly ONE next action. Use element ids from the UI list. Set done=true (action none) when the task is complete. "
+           "\n\nThe app is ALREADY OPEN and in front; never try to open or launch it again. "
+           "Choose exactly ONE next action. Use element ids from the UI list (click a field or placeholder, then type into it). "
+           "Prefer well-known keyboard shortcuts when they are reliable (e.g. ctrl+n new, ctrl+m new slide, ctrl+s save). "
+           "Do not repeat an action that produced 'no change'; try a different element or approach. "
+           "Set done=true (action none) as soon as the task is complete. "
            "Never close windows without saving, never delete, submit, send or pay.")
     return llm.complete([{"role": "system", "content": "You operate a Windows app one UI action at a time."},
                          {"role": "user", "content": msg}], json_schema=_ACTION_SCHEMA, project_id=project_id, run_id=run_id,
@@ -124,19 +136,42 @@ def explore(project_id: str, run_id: str, step: dict, budget: int = 25, desktop:
         scratch = db.project_dir(project_id) / "files" / f"operator_{secrets.token_hex(3)}.txt"
         scratch.write_text("", encoding="utf-8")
     if app:
-        launched = desktop.launch(app, file=str(scratch) if scratch else None)
-        window = scratch.stem if scratch else ((launched.get("foreground") or {}).get("title") or None)
-        actions.append({"action": "launch", "app": app, "result": "ok"})
-        if run_id:
-            db.audit(project_id, run_id, "ui_action", {"action": "launch", "app": app})
+        key = (run_id or project_id or "", app.strip().lower())
+        prev = _opened.get(key)
+        if prev is not None and not scratch and desktop.is_open(prev):
+            window = prev  # an earlier step of this run already opened it: continue in that window
+            desktop.focus(window)
+            actions.append({"action": "reuse_window", "app": app, "result": "ok"})
+        else:
+            try:
+                launched = desktop.launch(app, file=str(scratch) if scratch else None)
+            except Exception as e:
+                return {"ok": False, "actions": actions, "evidence": {}, "error": f"could not open {app}: {e}"}
+            window = launched.get("target") or (scratch.stem if scratch else (launched.get("foreground") or {}).get("title"))
+            _opened[key] = window
+            actions.append({"action": "launch", "app": app, "result": "ok", "window": launched.get("window")})
+            if run_id:
+                db.audit(project_id, run_id, "ui_action", {"action": "launch", "app": app, "via": launched.get("via"),
+                                                           "window": launched.get("window")})
     obs = desktop.observe(window)
+    for _ in range(8):  # slow apps: wait until the first screen has something to act on
+        if len(obs.get("elements", [])) >= 3 or obs.get("error"):
+            break
+        import time
+        time.sleep(1.5)
+        obs = desktop.observe(window)
     fails = 0
+    streak = 0  # consecutive actions with no visible effect
     for _ in range(budget):
         try:
             d = _decide(project_id, run_id, task, app, tips, obs, actions)
         except Exception as e:
             return {"ok": False, "actions": actions, "evidence": {"ui": _tree_text(obs, 30)}, "error": f"decision failed: {e}"}
         if d.get("done") or d.get("action") == "none":
+            effective = [a for a in actions if a.get("result") == "ok" and a["action"] not in ("reuse_window", "research")]
+            if not effective:  # the model says "done" but nothing it did had any effect: that is not success
+                return {"ok": False, "actions": actions, "evidence": {"ui": _tree_text(obs, 30)},
+                        "error": "no action took effect in the app (nothing was clicked or typed successfully)"}
             return {"ok": True, "actions": actions, "error": None,
                     "evidence": {"ui": _tree_text(obs, 30), "window": obs.get("window"), "file": str(scratch) if scratch else None}}
         target = next((e["name"] for e in obs.get("elements", []) if e["id"] == d.get("element_id")), "")
@@ -163,9 +198,13 @@ def explore(project_id: str, run_id: str, step: dict, budget: int = 25, desktop:
             db.audit(project_id, run_id, "ui_action", rec)
         obs = after if after.get("elements") or not obs.get("elements") else obs
         if ok:
-            fails = 0
+            fails = streak = 0
             continue
         fails += 1
+        streak += 1
+        if streak >= 4:  # really stuck: stop honestly instead of hammering the app
+            return {"ok": False, "actions": actions, "evidence": {"ui": _tree_text(obs, 30)},
+                    "error": f"stuck: the last {streak} actions had no visible effect in {app or 'the app'}"}
         if fails >= 2:  # stuck: search again using what is on screen
             on_screen = obs.get("window") or " ".join(e["name"] for e in obs.get("elements", [])[:5])
             tips = search(f"{app} {on_screen} {task}".strip())
@@ -180,7 +219,14 @@ if __name__ == "__main__":
             self.change, self.n = change, 0
 
         def launch(self, app, file=None):
+            self.launches = getattr(self, "launches", 0) + 1
             return {"foreground": {"title": "Untitled - Notepad"}}
+
+        def is_open(self, window):
+            return True
+
+        def focus(self, window):
+            pass
 
         def observe(self, window):
             self.n += 1 if self.change else 0
@@ -196,7 +242,7 @@ if __name__ == "__main__":
     g["_decide"] = lambda *a, **k: {"action": "click", "element_id": 2}   # never says done
     r = explore("p", "", {"args": {"app": "notepad", "task": "open the file menu"}}, budget=5, desktop=Mock(False),
                 search=lambda q: searches.append(q) or ["tip"])
-    assert not r["ok"] and "budget" in r["error"], r
+    assert not r["ok"] and ("budget" in r["error"] or "stuck" in r["error"]), r
     assert any(a["action"] == "research" for a in r["actions"]) and len(searches) >= 2, (r, searches)
     g["_decide"] = lambda *a, **k: {"action": "click", "element_id": 9}
     r2 = explore("p", "", {"args": {"app": "notepad", "task": "x"}}, budget=3, desktop=type("M", (Mock,), {
@@ -206,4 +252,15 @@ if __name__ == "__main__":
     g["_decide"] = orig
     h = _heuristic("type hello world and save", {"elements": [{"id": 3, "type": "Document", "name": ""}]}, [])
     assert h["action"] == "type" and h["text"].startswith("hello world"), h
+    # reuse: a second step of the same run must not launch the app again
+    m = Mock(True)
+    g["_decide"] = lambda *a, **k: {"action": "none", "done": True}
+    explore("p_reuse", "", {"args": {"app": "calculator", "task": "a"}}, desktop=m, search=lambda q: [])
+    explore("p_reuse", "", {"args": {"app": "calculator", "task": "b"}}, desktop=m, search=lambda q: [])
+    assert m.launches == 1, m.launches
+    # stuck: actions with no effect stop the loop well before the budget
+    g["_decide"] = lambda *a, **k: {"action": "click", "element_id": 2}
+    r3 = explore("p", "", {"args": {"app": "calculator", "task": "x"}}, budget=25, desktop=Mock(False), search=lambda q: [])
+    assert not r3["ok"] and "stuck" in r3["error"] and len([a for a in r3["actions"] if a["action"] == "click"]) <= 4, r3
+    g["_decide"] = orig
     print("agent.explore self-check OK")

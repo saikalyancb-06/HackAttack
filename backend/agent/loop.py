@@ -98,6 +98,46 @@ def _lookup(name: str, path: str, outputs: dict, item: Any) -> Any:
     return _get_path(outputs[name], path)
 
 
+FILE_WRITE_TOOLS = {
+    "files.write_text": "write", "files.append_text": "append", "files.write_csv": "write", "files.make_dir": "create folder",
+    "files.copy": "copy", "files.move": "move", "office.excel_upsert_rows": "write spreadsheet",
+    "office.word_write_doc": "write document", "office.outlook_create_draft": "save email draft",
+    "office.ppt_edit_slides": "create / edit presentation", "office.word_edit": "edit document",
+    "office.excel_set_cells": "edit spreadsheet",
+    "windows.explore": "operate a desktop app (it may create or save files)",
+}
+
+
+def _file_write_summary(project_id: str, tool: str, args_list: list[dict]) -> dict:
+    """What exactly will be written where: shown on the permission card."""
+    from pathlib import Path
+    files_dir = db.project_dir(project_id) / "files"
+    targets = []
+    for a in args_list:
+        if tool == "office.outlook_create_draft":
+            path = str(files_dir / "drafts" / "<new draft>.eml")
+        elif tool == "windows.explore":
+            path = f"{a.get('app', 'app')}: {a.get('task', '')}"[:200]
+        else:
+            path = a.get("dst") or a.get("path") or ""
+        exists = bool(path) and "<" not in path and Path(path).exists()
+        preview = a.get("text") or a.get("body") or a.get("append_text") or ""
+        if tool == "office.ppt_edit_slides":
+            preview = "\n".join(f"slide {s.get('index') or '+'}: {s.get('title', '')}" + (f" - {s.get('body')}" if s.get("body") else "")
+                                for s in (a.get("slides") or []) if isinstance(s, dict))
+        elif tool == "office.word_edit" and a.get("replacements"):
+            preview = (preview + "\n" if preview else "") + "\n".join(f"replace '{r.get('find')}' -> '{r.get('replace')}'" for r in a["replacements"])
+        elif tool == "office.excel_set_cells":
+            preview = "\n".join(f"{k} = {v}" for k, v in (a.get("cells") or {}).items())
+        if tool in ("office.excel_upsert_rows", "files.write_csv"):
+            preview = f"{len(a.get('rows') or [])} row(s)"
+        targets.append({"path": path, "exists": exists, "preview": str(preview)[:1500]})
+    op = FILE_WRITE_TOOLS.get(tool, "write")
+    return {"operation": op, "targets": targets,
+            "reason": "Operator asks before it writes anything on your device. You can allow this once, or allow all "
+                      "file writes for the rest of this run."}
+
+
 def _is_draft_text(v: Any) -> bool:
     """Outputs that are themselves generated emails (they would 'confirm' an address the LLM invented)."""
     return isinstance(v, dict) and ("emails" in v or "drafts" in v)
@@ -424,7 +464,8 @@ class Runner(threading.Thread):
                 db.audit(self.pid, self.rid, "tool_error", {"step_id": sid, "tool": tool, "attempt": n, "error": str(e)[:300]})
 
             try:
-                tries = 2 if tool in ("research.fetch", "browser.snapshot") else 3  # a slow page rarely recovers
+                # a slow page rarely recovers; a desktop explore has its own inner loop (retrying would relaunch the app)
+                tries = 1 if tool == "windows.explore" else 2 if tool in ("research.fetch", "browser.snapshot") else 3
                 out = with_retry(call, attempts=tries, backoff=(1, 2, 4), on_error=on_error, should_stop=self.stop_flag.is_set)
                 attempts_total += 1
                 ver = verifier.verify(self.pid, step, args, out if isinstance(out, dict) else {"value": out})
@@ -547,6 +588,13 @@ class Runner(threading.Thread):
         if tool == "files.delete":
             summary["paths"] = [a.get("path") for a in args_list]
             return "delete", True, summary
+        if tool in FILE_WRITE_TOOLS:
+            # Feature: never write on the user's device without asking (unless they allowed all writes for this run)
+            fw = _file_write_summary(self.pid, tool, args_list)
+            summary.update(fw)
+            allowed = db.get_run_setting(self.pid, self.rid, "allow_file_writes", False)
+            protected = any(risk.needs_approval({"risk": "write", "args": a}, config.PROTECTED_PATHS) for a in args_list)
+            return "file_write", bool(protected or not allowed), summary
         if tool == "windows.explore":
             return "action", unclear, summary
         needs = any(risk.needs_approval({"risk": step_risk, "args": a}, config.PROTECTED_PATHS) for a in args_list)
@@ -784,15 +832,18 @@ def is_active(run_id: str) -> bool:
     return bool(r and r.is_alive())
 
 
-def approve(project_id: str, approval_id: str, decision: str, edited_args: Any = None) -> dict:
+def approve(project_id: str, approval_id: str, decision: str, edited_args: Any = None, scope: str | None = None) -> dict:
     ap = db.get_approval(project_id, approval_id)
     if not ap:
         raise KeyError(approval_id)
     if ap["status"] != "pending":
         return {"ok": False, "error": "already resolved"}
     db.resolve_approval(project_id, approval_id, decision, edited_args)
+    if scope == "run" and decision in ("approve", "edit") and ap["kind"] == "file_write" and ap["run_id"]:
+        db.set_run_setting(project_id, ap["run_id"], "allow_file_writes", True)
     db.audit(project_id, ap["run_id"] or None, "approval_resolved", {"approval_id": approval_id, "decision": decision,
-                                                                     "kind": ap["kind"], "edited": bool(edited_args)})
+                                                                     "kind": ap["kind"], "edited": bool(edited_args),
+                                                                     "scope": scope or "once"})
     if ap["kind"] == "mcp_install":
         if decision in ("approve", "edit"):
             from backend.tools import mcp_registry
@@ -870,8 +921,8 @@ def report(project_id: str, run_id: str) -> dict:
         out = s.get("output") or {}
         if s["status"] in ("done", "reused", "degraded") and isinstance(out, dict) and s.get("risk") != "read" \
                 and s["tool"] not in ("files.make_dir", "files.delete"):
-            if out.get("path"):
-                artifacts.append({"step_id": s["step_id"], "path": out["path"], "kind": (s.get("produces") or {}).get("type", "file")})
+            for fp in out.get("files_written") or ([out["path"]] if out.get("path") else []):
+                artifacts.append({"step_id": s["step_id"], "path": fp, "kind": (s.get("produces") or {}).get("type", "file")})
             for it in out.get("items") or []:
                 p = (it.get("output") or {}).get("path") if it.get("ok") else None
                 if p:

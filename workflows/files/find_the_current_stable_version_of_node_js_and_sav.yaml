@@ -1,0 +1,64 @@
+name: find_the_current_stable_version_of_node_js_and_sav
+app: files
+intent: Find the current stable version of Node.js and save the version number with
+  the source link to node_version.txt
+risk: write
+steps:
+- step_id: s1
+  description: Search for the current stable version of Node.js on the official site
+  tool: research.search
+  args:
+    query: Node.js current stable version site:nodejs.org
+    k: 5
+  route: browser
+  risk: read
+- step_id: s2
+  description: Fetch the top result pages from the search
+  tool: research.fetch
+  args:
+    url: '{{item.url}}'
+  foreach: '{{s1.results}}'
+  route: browser
+  risk: read
+- step_id: s3
+  description: Extract the stable version number and source URL from fetched pages
+  tool: llm.generate
+  args:
+    instruction: From the fetched pages, identify the official Node.js page that states
+      the current stable LTS version. Return the version string (e.g., 20.12.0) and
+      the URL of that page. If the page cannot be fetched, fall back to using the
+      search snippet. Provide the result as JSON with fields version and link.
+    inputs:
+      search: '{{s1}}'
+      pages: '{{s2}}'
+    format: json
+    schema:
+      type: object
+      properties:
+        version:
+          type: string
+        link:
+          type: string
+      required:
+      - version
+      - link
+  produces:
+    type: dataset
+    key: node_version
+  route: think
+  risk: read
+- step_id: s4
+  description: Write the version and source link to node_version.txt
+  tool: files.write_text
+  args:
+    path: node_version.txt
+    text: 'Version: {{s3.version}}
+
+      Source: {{s3.link}}'
+  produces:
+    type: file
+    key: node_version_txt
+  route: shell
+  risk: write
+approved: true
+source_run: r_c02a9a

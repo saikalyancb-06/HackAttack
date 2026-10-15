@@ -63,11 +63,11 @@ export function ApprovalCard({ pid, ap, onDone }: { pid: string; ap: any; onDone
   const s = ap.summary || {};
   const kind = ap.kind;
   const danger = kind === "delete" || s.risk === "irreversible";
-  const decide = async (decision: string, edited?: any) => {
+  const decide = async (decision: string, edited?: any, scope?: string) => {
     setBusy(true);
     setErr("");
     try {
-      await api.post(`/projects/${pid}/approvals/${ap.approval_id}`, { decision, edited_args: edited });
+      await api.post(`/projects/${pid}/approvals/${ap.approval_id}`, { decision, edited_args: edited, ...(scope ? { scope } : {}) });
       onDone();
     } catch (e: any) {
       setErr(e.message);
@@ -80,14 +80,29 @@ export function ApprovalCard({ pid, ap, onDone }: { pid: string; ap: any; onDone
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {kind === "delete" ? <Icon.recycle style={{ color: "var(--bad)" }} /> : kind === "command" ? <Icon.terminal /> : kind === "mcp_install" ? <Icon.plug style={{ color: "var(--info)" }} /> : <Icon.shield style={{ color: "var(--accent)" }} />}
         <div style={{ fontWeight: 650, flex: 1 }}>
-          {kind === "delete" ? "Delete files (to Recycle Bin)" : kind === "command" ? "Run a command" : kind === "mcp_install" ? "Install MCP server" : "Approve action"}
+          {kind === "delete" ? "Delete files (to Recycle Bin)" : kind === "file_write" ? "Permission to write on your device" : kind === "command" ? "Run a command" : kind === "mcp_install" ? "Install MCP server" : "Approve action"}
         </div>
         {s.risk ? <RiskChip risk={s.risk} /> : null}
       </div>
       {kind !== "mcp_install" ? <div style={{ fontSize: 13, marginBottom: 8 }}>{s.description}</div> : null}
       {s.reason ? <div style={{ fontSize: 12, color: "var(--warn)", marginBottom: 6 }}>{s.reason}</div> : null}
 
-      {kind === "command" ? (
+      {kind === "file_write" ? (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{s.reason}</div>
+          {(s.targets || []).slice(0, 8).map((t: any, i: number) => (
+            <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 9, padding: 8 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <span className="chip chip-accent">{s.operation}</span>
+                {t.exists ? <span className="chip chip-warn">overwrites existing file</span> : null}
+              </div>
+              <div className="mono" style={{ fontSize: 12, marginTop: 6, wordBreak: "break-all" }}>{t.path}</div>
+              {t.preview ? <pre className="mono scroll-thin" style={{ margin: "6px 0 0", fontSize: 11.5, whiteSpace: "pre-wrap", maxHeight: 140, overflow: "auto", background: "var(--sunken)", padding: 8, borderRadius: 7 }}>{t.preview}</pre> : null}
+            </div>
+          ))}
+          {(s.targets || []).length > 8 ? <div style={{ fontSize: 12, color: "var(--muted)" }}>+{s.targets.length - 8} more</div> : null}
+        </div>
+      ) : kind === "command" ? (
         <div style={{ display: "grid", gap: 6 }}>
           <pre className="mono" style={{ margin: 0, padding: 10, borderRadius: 8, background: "#151412", color: "#f0efe9", fontSize: 12.5, whiteSpace: "pre-wrap" }}>{s.command}</pre>
           <div style={{ fontSize: 12, color: "var(--muted)" }}>{s.shell} · cwd {s.cwd}</div>
@@ -116,7 +131,13 @@ export function ApprovalCard({ pid, ap, onDone }: { pid: string; ap: any; onDone
 
       {err ? <div style={{ color: "var(--bad)", fontSize: 12, marginTop: 6 }}>{err}</div> : null}
       <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-        {kind === "mcp_install" ? (
+        {kind === "file_write" ? (
+          <>
+            <button className="btn btn-primary" disabled={busy} onClick={() => decide("approve")}><Icon.check width={14} height={14} />Allow once</button>
+            <button className="btn" disabled={busy} onClick={() => decide("approve", undefined, "run")}>Allow all writes this run</button>
+            <button className="btn" disabled={busy} onClick={() => decide("reject")}><Icon.x width={13} height={13} />Deny</button>
+          </>
+        ) : kind === "mcp_install" ? (
           <>
             <button className="btn btn-primary" disabled={busy} onClick={() => decide("approve")}>Install</button>
             <button className="btn" disabled={busy} onClick={() => decide("reject")}>Not now</button>

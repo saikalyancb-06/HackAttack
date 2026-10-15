@@ -5,7 +5,7 @@ import { useOperator } from "@/lib/store";
 import { RunCard } from "@/components/RunCard";
 import { ApprovalsTab } from "@/components/Approvals";
 import { KnowledgeTab } from "@/components/Knowledge";
-import { AuditTab, ReportTab, ToolsTab } from "@/components/Tabs";
+import { AuditTab, ReportModal, ReportTab, ToolsTab } from "@/components/Tabs";
 import { Icon, PIIBadge, Spinner, hasPII, timeAgo } from "@/components/ui";
 
 const EXAMPLES = [
@@ -33,6 +33,7 @@ export default function Page() {
   const [auditTick, setAuditTick] = useState(0);
   const [err, setErr] = useState("");
   const [leftOpen, setLeftOpen] = useState(false);
+  const [fullReport, setFullReport] = useState<string | null>(null);
   const [rightOpen, setRightOpen] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const { state, loadRun, loadApprovals } = useOperator(pid);
@@ -86,7 +87,7 @@ export default function Page() {
   useEffect(() => {
     if (state.approvals.length) {
       setTab("approvals");
-      if (window.innerWidth <= 1100) setRightOpen(true);
+      if (window.innerWidth <= 1180) setRightOpen(true);
     }
   }, [state.approvals.length]);
 
@@ -159,6 +160,7 @@ export default function Page() {
 
   return (
     <div className="app-grid">
+      {fullReport && pid ? <ReportModal pid={pid} runId={fullReport} onClose={() => setFullReport(null)} /> : null}
       <div className={`backdrop ${leftOpen || rightOpen ? "open" : ""}`} onClick={() => { setLeftOpen(false); setRightOpen(false); }} />
       {/* ---------------- sidebar */}
       <aside className={`left-panel ${leftOpen ? "open" : ""}`} style={{ borderRight: "1px solid var(--border)", background: "var(--panel-2)", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -228,7 +230,7 @@ export default function Page() {
         </header>
 
         <div ref={scroller} className="scroll-thin" style={{ flex: 1, overflow: "auto" }}>
-          <div style={{ maxWidth: 820, margin: "0 auto", padding: "22px 20px 30px", display: "grid", gap: 16 }}>
+          <div style={{ maxWidth: 940, margin: "0 auto", padding: "28px 28px 36px", display: "grid", gap: 22 }}>
             {err ? <div className="card" style={{ padding: 12, borderColor: "var(--bad)", color: "var(--bad)", fontSize: 13 }}>{err}</div> : null}
             {!visible.length && !err ? (
               <div style={{ paddingTop: "8vh", textAlign: "center" }}>
@@ -262,7 +264,7 @@ export default function Page() {
                 return (
                   <RunCard key={m.id} pid={pid!} run={state.runs[m.run_id]} logs={state.logs[m.run_id] || []} report={state.reports[m.run_id]}
                     suggestions={state.suggestions[m.run_id] || []} approvals={state.approvals}
-                    onOpenApprovals={() => setTab("approvals")} onSuggestion={onSuggestion} />
+                    onOpenApprovals={() => setTab("approvals")} onSuggestion={onSuggestion} onOpenReport={() => setFullReport(m.run_id!)} />
                 );
               }
               return (
@@ -279,7 +281,7 @@ export default function Page() {
         </div>
 
         <div style={{ padding: "0 20px 18px" }}>
-          <div className="card" style={{ maxWidth: 820, margin: "0 auto", padding: 10 }}>
+          <div className="card" style={{ maxWidth: 940, margin: "0 auto", padding: 10 }}>
             <textarea className="scroll-thin" value={text} onChange={(e) => setText(e.target.value)} rows={2}
               placeholder="Describe a goal, or ask about this project…"
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
@@ -312,7 +314,7 @@ export default function Page() {
             </button>
           ))}
         </div>
-        <div className="scroll-thin" style={{ flex: 1, overflow: "auto", padding: 14 }}>
+        <div className="scroll-thin" style={{ flex: 1, overflow: "auto", padding: "18px 20px" }}>
           {!pid ? null : tab === "approvals" ? (
             <ApprovalsTab pid={pid} approvals={state.approvals} reload={() => { loadApprovals(); runIds.forEach((r) => loadRun(r)); }} />
           ) : tab === "knowledge" ? (
@@ -320,7 +322,8 @@ export default function Page() {
           ) : tab === "audit" ? (
             <AuditTab pid={pid} runId={activeRunId} tick={auditTick} />
           ) : tab === "report" ? (
-            <ReportTab pid={pid} runId={activeRunId} report={activeRunId ? state.reports[activeRunId] : null} run={activeRunId ? state.runs[activeRunId] : null} />
+            <ReportTab pid={pid} initialRunId={activeRunId} onOpenFull={setFullReport}
+              runs={runIds.map((rid) => ({ run_id: rid, goal: (state.runs[rid] as any)?.goal_masked || "", status: (state.runs[rid] as any)?.status }))} />
           ) : (
             <ToolsTab pid={pid} tick={auditTick} />
           )}

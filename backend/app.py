@@ -162,7 +162,7 @@ def resolve(pid: str, aid: str, body: dict = Body(...)):
     if decision not in ("approve", "edit", "reject"):
         raise HTTPException(400, "decision must be approve|edit|reject")
     try:
-        return loop.approve(_pid(pid), aid, decision, body.get("edited_args"))
+        return loop.approve(_pid(pid), aid, decision, body.get("edited_args"), body.get("scope"))
     except KeyError:
         raise HTTPException(404, "approval not found")
 

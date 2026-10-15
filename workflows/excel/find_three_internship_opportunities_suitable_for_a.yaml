@@ -1,0 +1,135 @@
+name: find_three_internship_opportunities_suitable_for_a
+app: excel
+intent: Find three internship opportunities suitable for a third-year computer science
+  student, compare their eligibility criteria, save the best matches to a spreadsheet
+  and prepare personalized draft emails for each opportunity.
+risk: write
+steps:
+- step_id: s1
+  description: Search for official 2026 software engineering internship opportunities
+    suitable for a third-year computer science student.
+  tool: research.search
+  args:
+    query: 2026 software engineering internship computer science third year eligibility
+      deadline site:careers.google.com
+    k: 8
+  route: browser
+  risk: read
+- step_id: s2
+  description: Search for official 2026 Microsoft Explore internship opportunities
+    for third-year computer science students.
+  tool: research.search
+  args:
+    query: 2026 Microsoft Explore internship computer science eligibility deadline
+    k: 8
+  route: browser
+  risk: read
+- step_id: s3
+  description: Combine URLs from search results into a list of up to 6 official internship
+    pages.
+  tool: llm.generate
+  args:
+    instruction: Extract the URLs of official internship pages from the search results
+      s1 and s2. Return a JSON array 'urls' containing up to 6 URLs, prioritizing
+      those from company careers sites.
+    inputs:
+      search1: '{{s1}}'
+      search2: '{{s2}}'
+    format: json
+    schema:
+      urls:
+      - string
+  route: think
+  risk: read
+- step_id: s4
+  description: Fetch the content of each selected internship page.
+  tool: research.fetch
+  args:
+    url: '{{item}}'
+  foreach: '{{s3.urls}}'
+  produces:
+    type: dataset
+    key: pages
+  route: browser
+  risk: read
+- step_id: s8
+  description: Extract internship details from fetched pages and search snippets,
+    then rank them for a third-year CS student
+  tool: llm.generate
+  args:
+    instruction: 'Using the fetched page contents from s4 and the original search
+      result snippets from s1 and s2, extract for each internship: name, company,
+      link, required year of study, GPA requirement (if any), application deadline,
+      and stipend (if mentioned). Then rank the internships by relevance to a third-year
+      computer science student (higher rank for matching year, CS focus, and generous
+      stipend). Return a JSON object with a ''rows'' array containing objects with
+      fields: Name, Company, Link, YearRequirement, GPARequirement, Deadline, Stipend,
+      Rank (1=best).'
+    inputs:
+      pages: '{{s4}}'
+      search1: '{{s1}}'
+      search2: '{{s2}}'
+    format: json
+    schema:
+      rows:
+      - Name: ''
+        Company: ''
+        Link: ''
+        YearRequirement: ''
+        GPARequirement: ''
+        Deadline: ''
+        Stipend: ''
+        Rank: 0
+  produces:
+    type: dataset
+    key: internships
+  route: think
+  risk: read
+- step_id: s9
+  description: Save the ranked internship opportunities to a spreadsheet
+  tool: office.excel_upsert_rows
+  args:
+    path: internships.xlsx
+    sheet: Internships
+    key_column: Name
+    rows: '{{s8.rows}}'
+  produces:
+    type: spreadsheet
+    key: internships_sheet
+  route: com
+  risk: write
+- step_id: s10
+  description: Create personalized email drafts for each internship
+  tool: office.outlook_create_draft
+  args:
+    to: '{{item.Company}} HR <<EMAIL_2>>'
+    subject: Inquiry about {{item.Name}} Internship Opportunity
+    body: 'Dear {{item.Company}} Recruiting Team,
+
+
+      I am a third-year Computer Science student eager to apply for the {{item.Name}}
+      internship. I meet the eligibility criteria ({{item.YearRequirement}}) and have
+      a GPA of {{item.GPARequirement}}. I am particularly interested in the role because
+      ...
+
+
+      Could you please provide any additional information regarding the application
+      process and timeline?
+
+
+      Thank you for your consideration.
+
+
+      Best regards,
+
+      [Your Name]
+
+      [Your Contact Information]'
+  foreach: '{{s8.rows}}'
+  produces:
+    type: drafts
+    key: internship_emails
+  route: com
+  risk: write
+approved: true
+source_run: r_5a1ed7

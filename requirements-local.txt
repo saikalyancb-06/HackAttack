@@ -18,3 +18,4 @@ pyyaml
 pillow
 numpy
 pytest
+python-pptx

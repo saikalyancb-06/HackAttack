@@ -57,6 +57,7 @@
 html,
 body {
   height: 100%;
+  line-height: 1.5;
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -177,15 +178,15 @@ body {
 .md code { font-family: ui-monospace, Consolas, monospace; background: var(--panel-2); padding: 0 4px; border-radius: 4px; font-size: 12px; }
 
 /* ---------- responsive shell */
-.app-grid { display: grid; grid-template-columns: 248px minmax(0, 1fr) 420px; height: 100vh; overflow: hidden; }
+.app-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr) 460px; height: 100vh; overflow: hidden; }
 .drawer-btn { display: none; }
 .backdrop { display: none; }
 @media (max-width: 1280px) {
-  .app-grid { grid-template-columns: 224px minmax(0, 1fr) 360px; }
+  .app-grid { grid-template-columns: 232px minmax(0, 1fr) 400px; }
 }
-@media (max-width: 1100px) {
+@media (max-width: 1180px) {
   .app-grid { grid-template-columns: 224px minmax(0, 1fr); }
-  .right-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 92vw); z-index: 40; transform: translateX(100%); transition: transform .22s ease; box-shadow: var(--shadow); }
+  .right-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(480px, 94vw); z-index: 40; transform: translateX(100%); transition: transform .22s ease; box-shadow: var(--shadow); }
   .right-panel.open { transform: none; }
   .drawer-btn.right { display: inline-flex; }
   .backdrop.open { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 30; }

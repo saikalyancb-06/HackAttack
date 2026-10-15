@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Autonomous AI operator: plans, acts, recovers and verifies across your apps",
 };
 
-const themeBoot = `try{var t=localStorage.getItem('op-theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}`;
+const themeBoot = `try{var t=localStorage.getItem('op-theme');if(t==='dark')document.documentElement.classList.add('dark')}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
